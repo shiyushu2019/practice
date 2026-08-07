@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 def rotate_half(x):
     x1, x2 = x[..., :x.shape[-1]//2], x[..., x.shape[-1]//2:]
@@ -44,11 +45,11 @@ class Attention_GQA(nn.Module):
         self.register_buffer('cos_cached', emb.cos())              # (max_seq_len, d_k)
         self.register_buffer('sin_cached', emb.sin())
 
-    def forward(self, x, *,attn_mask,key_padding_mask):
+    def forward(self, x, *,key_padding_mask):
         """
         x: (B, L, d_model)
-        attn_mask: (B, 1, L, L) (float)
-        key_padding_mask: (B, L) (True for padding)
+        attn_mask: (B, 1, L, L) (True for pad)
+        key_padding_mask: (B, L) (True for pad)
         We guarantee args is like above.
         """
         B, L, E = x.size()
@@ -67,14 +68,15 @@ class Attention_GQA(nn.Module):
             K = K.repeat_interleave(repeat_times, dim=1)
             V = V.repeat_interleave(repeat_times, dim=1)
 
+        if not hasattr(self, 'causal_mask') or self.causal_mask.size(2) < L:
+            causal = torch.tril(torch.ones(L, L, dtype=torch.bool,device=x.device), diagonal=0)
+            self.register_buffer('causal_mask', causal.unsqueeze(0).unsqueeze(0))
+        causal_mask = self.causal_mask[:, :, :L, :L]   # (1, 1, L, L)
+
         key_padding_mask = key_padding_mask.unsqueeze(1).unsqueeze(2)
-        key_padding_mask = torch.where(key_padding_mask, 
-                               torch.tensor(float('-inf'), device=x.device, dtype=x.dtype), 
-                               torch.tensor(0.0, device=x.device, dtype=x.dtype))
         # key_padding_mask: (B, L) -> (B, 1, 1, L)
-        attn_mask=attn_mask.to(x.dtype)
-        #mask = key_padding_mask + attn_mask
-        attn_mask+=key_padding_mask 
+        keep_mask = ~key_padding_mask
+        attn_mask = causal_mask & keep_mask
 
         context = F.scaled_dot_product_attention(Q, K, V, 
                                                 attn_mask=attn_mask,
@@ -122,7 +124,7 @@ class TransformerBlock(nn.Module):
         self.dropout1=nn.Dropout(dropout)
         self.dropout2=nn.Dropout(dropout)
 
-    def forward(self, x, *, attn_mask, key_padding_mask):
+    def forward(self, x, key_padding_mask):
         """
         x: (B, L, d_model)
         attn_mask: (B, 1, L, L) (float)
@@ -131,7 +133,7 @@ class TransformerBlock(nn.Module):
         """
         # Attention
         x=self.norm1(x)
-        attn_out=self.attention(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+        attn_out=self.attention(x, key_padding_mask=key_padding_mask)
         x=x+self.dropout1(attn_out)
         # FNN
         x=self.norm2(x)
@@ -161,7 +163,10 @@ class MyModel(nn.Module):
         self.final_norm=nn.RMSNorm(d_model)
         self.lm_head=nn.Linear(d_model, vocab_size, bias=False)
 
-    def forward(self, input_ids, *, attn_mask, key_padding_mask):
+    def gradient_checkpointing_enable(self,**args):
+        print("[model.py] model always has gradient checkpoint")
+
+    def forward(self, input_ids, *,  key_padding_mask,**kwargs):
         """
         x: (B, L, d_model)
         attn_mask: (B, 1, L, L) (float)
@@ -170,7 +175,12 @@ class MyModel(nn.Module):
         """
         x=self.embedding(input_ids)
         for layer in self.layers:
-            x=layer(x, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+            x = checkpoint(
+                layer, 
+                x, 
+                key_padding_mask,
+                use_reentrant=False
+            )
         x=self.final_norm(x)
         logits=self.lm_head(x)
         return logits
@@ -195,10 +205,5 @@ if __name__ == "__main__":
     key_padding_mask[2, 8:] = True
     key_padding_mask[3, 6:] = True
 
-    causal_mask = torch.triu(torch.ones(L, L, dtype=torch.bool), diagonal=1)
-    attn_base = torch.zeros(L, L, dtype=torch.float32)
-    attn_base = attn_base.masked_fill(causal_mask, float('-inf'))
-    attn_mask = attn_base.unsqueeze(0).unsqueeze(0).expand(B, 1, L, L).to("cuda")
-
-    output = model(input_ids, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+    output = model(input_ids,  key_padding_mask=key_padding_mask)
     print(output.shape)
