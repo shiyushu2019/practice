@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 class FNN_SwiGLU(nn.Module):
-    def __init__(self,d_model=100, d_ff=267):
+    def __init__(self,d_model=200, d_ff=267*2):
         super(FNN_SwiGLU, self).__init__()
         self.linear_gate = nn.Linear(d_model, d_ff,bias=False)
         self.linear_main=nn.Linear(d_model, d_ff,bias=False)
@@ -20,7 +20,7 @@ class FNN_SwiGLU(nn.Module):
         return x_out
 
 if __name__ == "__main__":
-    model = FNN_SwiGLU(d_model=100, d_ff=267)
-    x = torch.randn(32, 100)  # Example input with batch size 32 and feature size 100
+    model = FNN_SwiGLU(d_model=200, d_ff=2*267)
+    x = torch.randn(32, 200)  # Example input with batch size 32 and feature size 200
     output = model(x)
-    print(output.shape)  # Should print torch.Size([32, 100])
+    print(output.shape)  # Should print torch.Size([32, 200])
