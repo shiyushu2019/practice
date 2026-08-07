@@ -28,13 +28,14 @@ def generate(
     generated = input_ids
     with torch.no_grad():
         for _ in range(max_new_tokens):
-            # 构造 key_padding_mask（无填充，全 False）
             L = generated.size(1)
-            key_padding_mask = torch.zeros(1, L, dtype=torch.bool, device=device)
-            
             # 前向
-            logits = model(generated, key_padding_mask=key_padding_mask)  # (1, L, vocab_size)
-            next_token_logits = logits[:, -1, :] / temperature   # 取最后一个位置的 logits
+            logits = model(generated)  # (1, L, vocab_size)
+            #next_token_logits = logits[:, -1, :] / temperature   # 取最后一个位置的 logits
+            if temperature > 0:
+                next_token_logits = logits[:, -1, :] / temperature
+            else:
+                next_token_logits = logits[:, -1, :]   # 不做缩放，直接 argmax
             
             # 可选 top-k 采样
             if top_k is not None:
@@ -52,7 +53,8 @@ def generate(
                 next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)  # (1, 1)
             
             generated = torch.cat([generated, next_token], dim=1)
-            
+            if generated.size(1) >= model.max_seq_len:
+                break 
             # 可选：遇到 EOS 终止（Qwen tokenizer 有 eos_token）
             if tokenizer.eos_token_id is not None and next_token.item() == tokenizer.eos_token_id:
                 break

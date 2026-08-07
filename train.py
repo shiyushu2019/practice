@@ -3,6 +3,7 @@
 import torch
 import torch.nn as nn
 import random
+import glob
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 from transformers import (
@@ -24,32 +25,27 @@ model = MyModel(vocab_size=tokenizer.vocab_size,
                     dropout=0.1,
                     max_seq_len=2048).to(DEVICE)
 
-L = model.max_seq_len
-causal_mask = torch.triu(torch.ones(L, L, dtype=torch.float32), diagonal=1)
-causal_mask = causal_mask.masked_fill(causal_mask == 1, float('-inf'))
-causal_mask = causal_mask.unsqueeze(0).unsqueeze(0)   # (1, 1, L, L)
-
 training_args = TrainingArguments(
     output_dir='./checkpoints',
     logging_dir='./logs',
-    num_train_epochs=100,
+    num_train_epochs=30,
 
-    learning_rate=5e-6,
+    learning_rate=1e-4,
     weight_decay=0.01,
-    warmup_ratio=0.05,
+    warmup_ratio=0.03,
     lr_scheduler_type="cosine",
     per_device_train_batch_size=4,
-    per_device_eval_batch_size=1,
+    per_device_eval_batch_size=2,
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
 
     eval_strategy="epoch",
-    eval_steps=1,
+    eval_steps=1000,
     metric_for_best_model="eval_loss",
     greater_is_better=False, 
     load_best_model_at_end=True, 
     save_total_limit=1,
-    logging_steps=10,
+    logging_steps=30,
     save_strategy="best",
     
     fp16=True,
@@ -73,18 +69,16 @@ def collate_fn(batch):
                         torch.full((B, 1), -100, dtype=torch.long)], dim=1)
     # 复制因果掩码到 batch 维度
     # 无 padding，全 False
-    key_padding_mask = torch.zeros(B, L, dtype=torch.bool)
+    #key_padding_mask = torch.zeros(B, L, dtype=torch.bool)
     return {
         'input_ids': input_ids,
         'labels': labels,
-        'key_padding_mask': key_padding_mask
     }
 
 class MyTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         logits = model(
-            input_ids=inputs['input_ids'],
-            key_padding_mask=inputs['key_padding_mask']
+            input_ids=inputs['input_ids']
         )
         loss = F.cross_entropy(
             logits.view(-1, logits.size(-1)),
@@ -95,14 +89,12 @@ class MyTrainer(Trainer):
     def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
         # 提取模型需要的参数
         input_ids = inputs['input_ids']
-        key_padding_mask = inputs['key_padding_mask']
         labels = inputs.get('labels')
 
         with torch.no_grad():
             # 前向传播，获取 logits（不计算 loss，但我们会手动计算）
             logits = model(
                 input_ids=input_ids,
-                key_padding_mask=key_padding_mask
             )
             # 计算损失（如果提供了 labels）
             loss = None
@@ -126,15 +118,17 @@ def set_seed(seed=42):
 
 if __name__ == "__main__":
     set_seed(42)
-    with open('data.txt', 'r', encoding='utf-8') as f:
-        text = f.read()
+    text = ""
+    for filepath in sorted(glob.glob("./data/*.txt")):
+        with open(filepath, 'r', encoding='utf-8') as f:
+            text += f.read()
     tokenizer.model_max_length = 1000000
     tokens = tokenizer.encode(text, add_special_tokens=False)
     block_size = model.max_seq_len         
     blocks = [tokens[i:i+block_size] for i in range(0, len(tokens), block_size)
               if len(tokens[i:i+block_size]) == block_size]
     random.shuffle(blocks)
-    split = int(0.9 * len(blocks))
+    split = int(0.95 * len(blocks))
     train_blocks = blocks[:split]
     eval_blocks = blocks[split:]
 
@@ -148,4 +142,5 @@ if __name__ == "__main__":
         eval_dataset=eval_dataset,
         data_collator=collate_fn,
     )
-    trainer.train(resume_from_checkpoint="./checkpoints/checkpoint-560/")
+    trainer.train()
+    #trainer.train(resume_from_checkpoint="./checkpoints/checkpoint-560/")

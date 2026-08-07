@@ -37,7 +37,7 @@ class Attention_GQA(nn.Module):
         self._RoPE_prepare()
     
     def _RoPE_prepare(self):
-        theta = 500000.0
+        theta = 10000.0
         inv_freq = 1.0 / (theta ** (torch.arange(0, self.d_k, 2).float() / self.d_k))
         positions = torch.arange(self.max_seq_len).float().unsqueeze(1)  # (max_seq_len, 1)
         freqs = positions * inv_freq.unsqueeze(0)                  # (max_seq_len, d_k/2)
@@ -45,7 +45,7 @@ class Attention_GQA(nn.Module):
         self.register_buffer('cos_cached', emb.cos())              # (max_seq_len, d_k)
         self.register_buffer('sin_cached', emb.sin())
 
-    def forward(self, x, *,key_padding_mask):
+    def forward(self, x):
         """
         x: (B, L, d_model)
         attn_mask: (B, 1, L, L) (True for pad)
@@ -68,19 +68,8 @@ class Attention_GQA(nn.Module):
             K = K.repeat_interleave(repeat_times, dim=1)
             V = V.repeat_interleave(repeat_times, dim=1)
 
-        if not hasattr(self, 'causal_mask') or self.causal_mask.size(2) < L:
-            causal = torch.tril(torch.ones(L, L, dtype=torch.bool,device=x.device), diagonal=0)
-            self.register_buffer('causal_mask', causal.unsqueeze(0).unsqueeze(0))
-        causal_mask = self.causal_mask[:, :, :L, :L]   # (1, 1, L, L)
-
-        key_padding_mask = key_padding_mask.unsqueeze(1).unsqueeze(2)
-        # key_padding_mask: (B, L) -> (B, 1, 1, L)
-        keep_mask = ~key_padding_mask
-        attn_mask = causal_mask & keep_mask
-
         context = F.scaled_dot_product_attention(Q, K, V, 
-                                                attn_mask=attn_mask,
-                                                is_causal=False, 
+                                                is_causal=True,
                                                 #dropout_p=self.dropout.p if self.training else 0.0,
                                                 dropout_p=0.0
                                                 )
@@ -115,7 +104,8 @@ class TransformerBlock(nn.Module):
                  num_heads=4,
                  num_kv_heads=2,
                  dropout=0.1,
-                 max_seq_len=4096):
+                 max_seq_len=4096,
+                 residual_scale=1):
         super(TransformerBlock, self).__init__()
         self.attention = Attention_GQA(d_model=d_model, num_heads=num_heads, num_kv_heads=num_kv_heads, max_seq_len=max_seq_len)
         self.fnn=FNN_SwiGLU(d_model=d_model, d_ff=int(d_model*2.67))
@@ -123,8 +113,9 @@ class TransformerBlock(nn.Module):
         self.norm2=nn.RMSNorm(d_model)
         self.dropout1=nn.Dropout(dropout)
         self.dropout2=nn.Dropout(dropout)
+        self.residual_scale=residual_scale
 
-    def forward(self, x, key_padding_mask):
+    def forward(self, x):
         """
         x: (B, L, d_model)
         attn_mask: (B, 1, L, L) (float)
@@ -132,13 +123,15 @@ class TransformerBlock(nn.Module):
         We guarantee args is like above.
         """
         # Attention
+        residual=x
         x=self.norm1(x)
-        attn_out=self.attention(x, key_padding_mask=key_padding_mask)
-        x=x+self.dropout1(attn_out)
+        attn_out=self.attention(x)
+        x=residual+self.dropout1(attn_out)*self.residual_scale
         # FNN
+        residual=x
         x=self.norm2(x)
         fnn_out=self.fnn(x)
-        x=x+self.dropout2(fnn_out)
+        x=residual+self.dropout2(fnn_out)*self.residual_scale
         return x
 
 class MyModel(nn.Module):
@@ -154,6 +147,7 @@ class MyModel(nn.Module):
         self.embedding = nn.Embedding(vocab_size, d_model)
         self.layers=nn.ModuleList()
         self.max_seq_len=max_seq_len
+        self.d_model=d_model
         for _ in range(num_layers):
             self.layers.append(TransformerBlock(d_model=d_model,
                                                 num_heads=num_heads,
@@ -166,21 +160,19 @@ class MyModel(nn.Module):
     def gradient_checkpointing_enable(self,**args):
         print("[model.py] model always has gradient checkpoint")
 
-    def forward(self, input_ids, *,  key_padding_mask,**kwargs):
+    def forward(self, input_ids,**kwargs):
         """
         x: (B, L, d_model)
         attn_mask: (B, 1, L, L) (float)
         key_padding_mask: (B, L) (True for padding)
         We guarantee args is like above.
         """
-        x=self.embedding(input_ids)
+        x=self.embedding(input_ids)* (self.d_model ** 0.5)
         for layer in self.layers:
-            x = checkpoint(
-                layer, 
-                x, 
-                key_padding_mask,
-                use_reentrant=False
-            )
+            if self.training:
+                x = checkpoint(layer, x, use_reentrant=False)
+            else:
+                x = layer(x)
         x=self.final_norm(x)
         logits=self.lm_head(x)
         return logits
@@ -200,10 +192,5 @@ if __name__ == "__main__":
     B, L = 4, 10
     input_ids = torch.randint(0, 32000, (B, L)).to("cuda")
 
-    key_padding_mask = torch.zeros(B, L, dtype=torch.bool).to("cuda")
-    key_padding_mask[1, 7:] = True
-    key_padding_mask[2, 8:] = True
-    key_padding_mask[3, 6:] = True
-
-    output = model(input_ids,  key_padding_mask=key_padding_mask)
+    output = model(input_ids)
     print(output.shape)
