@@ -1,3 +1,5 @@
+# export CUDA_VISIBLE_DEVICES=2
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -65,13 +67,17 @@ class Attention_GQA(nn.Module):
             K = K.repeat_interleave(repeat_times, dim=1)
             V = V.repeat_interleave(repeat_times, dim=1)
 
-        key_padding_mask = key_padding_mask.unsqueeze(1).unsqueeze(2).to(x.dtype) * float('-inf')
+        key_padding_mask = key_padding_mask.unsqueeze(1).unsqueeze(2)
+        key_padding_mask = torch.where(key_padding_mask, 
+                               torch.tensor(float('-inf'), device=x.device, dtype=x.dtype), 
+                               torch.tensor(0.0, device=x.device, dtype=x.dtype))
         # key_padding_mask: (B, L) -> (B, 1, 1, L)
         attn_mask=attn_mask.to(x.dtype)
-        mask = key_padding_mask + attn_mask
+        #mask = key_padding_mask + attn_mask
+        attn_mask+=key_padding_mask 
 
         context = F.scaled_dot_product_attention(Q, K, V, 
-                                                attn_mask=mask,
+                                                attn_mask=attn_mask,
                                                 is_causal=False, 
                                                 #dropout_p=self.dropout.p if self.training else 0.0,
                                                 dropout_p=0.0
@@ -145,6 +151,7 @@ class MyModel(nn.Module):
         super(MyModel, self).__init__()
         self.embedding = nn.Embedding(vocab_size, d_model)
         self.layers=nn.ModuleList()
+        self.max_seq_len=max_seq_len
         for _ in range(num_layers):
             self.layers.append(TransformerBlock(d_model=d_model,
                                                 num_heads=num_heads,
@@ -169,12 +176,21 @@ class MyModel(nn.Module):
         return logits
 
 if __name__ == "__main__":
-    model = MyModel(vocab_size=32000, num_layers=24, d_model=200, num_heads=4, num_kv_heads=2, dropout=0.1, max_seq_len=4096)
+    model = MyModel(vocab_size=32000,
+                    num_layers=24,
+                    d_model=2048,
+                    num_heads=16,
+                    num_kv_heads=8,
+                    dropout=0.1,
+                    max_seq_len=8192).to("cuda")
+    total = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total/1e9:.2f}B")
+
     model.eval()
     B, L = 4, 10
-    input_ids = torch.randint(0, 32000, (B, L))
+    input_ids = torch.randint(0, 32000, (B, L)).to("cuda")
 
-    key_padding_mask = torch.zeros(B, L, dtype=torch.bool)
+    key_padding_mask = torch.zeros(B, L, dtype=torch.bool).to("cuda")
     key_padding_mask[1, 7:] = True
     key_padding_mask[2, 8:] = True
     key_padding_mask[3, 6:] = True
@@ -182,7 +198,7 @@ if __name__ == "__main__":
     causal_mask = torch.triu(torch.ones(L, L, dtype=torch.bool), diagonal=1)
     attn_base = torch.zeros(L, L, dtype=torch.float32)
     attn_base = attn_base.masked_fill(causal_mask, float('-inf'))
-    attn_mask = attn_base.unsqueeze(0).unsqueeze(0).expand(B, 1, L, L)
+    attn_mask = attn_base.unsqueeze(0).unsqueeze(0).expand(B, 1, L, L).to("cuda")
 
     output = model(input_ids, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
     print(output.shape)
