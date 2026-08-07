@@ -1,4 +1,5 @@
 # export CUDA_VISIBLE_DEVICES=2
+# nohup python train.py 2>&1 &
 
 import torch
 import torch.nn as nn
@@ -40,7 +41,8 @@ training_args = TrainingArguments(
     gradient_checkpointing=True,
 
     eval_strategy="epoch",
-    eval_steps=1000,
+    #eval_strategy="steps",
+    eval_steps=250,
     metric_for_best_model="eval_loss",
     greater_is_better=False, 
     load_best_model_at_end=True, 
