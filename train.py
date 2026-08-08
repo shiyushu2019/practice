@@ -18,6 +18,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B",trust_remote_code=True)
+tokenizer.model_max_length = 10000000
 if tokenizer.eos_token_id is not None:
     pad_token_id = tokenizer.eos_token_id
 else:
@@ -50,7 +51,7 @@ training_args = TrainingArguments(
 
     #eval_strategy="epoch",
     eval_strategy="steps",
-    eval_steps=250,
+    eval_steps=500,
     metric_for_best_model="eval_loss",
     greater_is_better=False, 
     load_best_model_at_end=True, 
@@ -127,6 +128,7 @@ if __name__ == "__main__":
     block_size = model.max_seq_len
     all_blocks = []
 
+    book_cnt=0
     for filepath in sorted(glob.glob("./data/*.txt")):
         with open(filepath, 'r', encoding='utf-8') as f:
             text = f.read()
@@ -138,6 +140,9 @@ if __name__ == "__main__":
                 # 补全到 block_size
                 block = block + [pad_token_id] * (block_size - len(block))
             all_blocks.append(block)
+        
+        book_cnt+=1
+    print(f"having {book_cnt} books")
     
     random.shuffle(all_blocks)
     
