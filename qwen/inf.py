@@ -37,7 +37,7 @@ def generate(
         for _ in range(max_new_tokens):
             L = generated.size(1)
             # 前向
-            logits = model(generated)  # (1, L, vocab_size)
+            logits = model(generated).logits   # (1, L, vocab_size)
             #next_token_logits = logits[:, -1, :] / temperature   # 取最后一个位置的 logits
             if temperature > 0:
                 next_token_logits = logits[:, -1, :] / temperature
