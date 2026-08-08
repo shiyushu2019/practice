@@ -36,33 +36,32 @@ model = MyModel(vocab_size=tokenizer.vocab_size,
                     max_seq_len=2048).to(DEVICE)
 
 training_args = TrainingArguments(
-    output_dir='./checkpoints',
-    logging_dir='./logs',
-    num_train_epochs=30,
+                    output_dir='./checkpoints',
+                    logging_dir='./logs',
+                    num_train_epochs=30,
 
-    learning_rate=1e-4,
-    weight_decay=0.01,
-    warmup_ratio=0.03,
-    lr_scheduler_type="cosine",
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=2,
-    gradient_accumulation_steps=2,
-    gradient_checkpointing=True,
+                    learning_rate=1e-4,
+                    weight_decay=0.01,
+                    warmup_ratio=0.03,
+                    lr_scheduler_type="cosine",
+                    per_device_train_batch_size=2,
+                    per_device_eval_batch_size=2,
+                    gradient_accumulation_steps=4,
 
-    #eval_strategy="epoch",
-    eval_strategy="steps",
-    eval_steps=500,
-    metric_for_best_model="eval_loss",
-    greater_is_better=False, 
-    load_best_model_at_end=True, 
-    save_total_limit=1,
-    logging_steps=30,
-    save_strategy="best",
-    
-    fp16=True,
-    dataloader_num_workers=2,
-    max_grad_norm=1.0,             
-)
+                    #eval_strategy="epoch",
+                    eval_strategy="steps",
+                    eval_steps=500,
+                    metric_for_best_model="eval_loss",
+                    greater_is_better=False, 
+                    load_best_model_at_end=True, 
+                    save_total_limit=1,
+                    logging_steps=30,
+                    save_strategy="best",
+                    
+                    fp16=True,
+                    dataloader_num_workers=2,
+                    max_grad_norm=1.0
+                    )
 
 class TextDataset(Dataset):
     def __init__(self, blocks):

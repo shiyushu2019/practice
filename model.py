@@ -157,8 +157,6 @@ class MyModel(nn.Module):
         self.final_norm=nn.RMSNorm(d_model)
         self.lm_head=nn.Linear(d_model, vocab_size, bias=False)
 
-    def gradient_checkpointing_enable(self,**args):
-        print("[model.py] model always has gradient checkpoint")
 
     def forward(self, input_ids,**kwargs):
         """
@@ -169,10 +167,7 @@ class MyModel(nn.Module):
         """
         x=self.embedding(input_ids)* (self.d_model ** 0.5)
         for layer in self.layers:
-            if self.training:
-                x = checkpoint(layer, x, use_reentrant=False)
-            else:
-                x = layer(x)
+            x = layer(x)
         x=self.final_norm(x)
         logits=self.lm_head(x)
         return logits
