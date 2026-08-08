@@ -59,8 +59,8 @@ class Attention_GQA(nn.Module):
         V=self.v(x).view(B, L, self.num_kv_heads, self.d_k).transpose(1, 2)
         # Q/K/V: (B, num_heads, L, d_k)
 
-        cos = self.cos_cached[:L, :].unsqueeze(0).unsqueeze(0)
-        sin = self.sin_cached[:L, :].unsqueeze(0).unsqueeze(0)
+        cos = self.cos_cached[:L, :].to(x.dtype).unsqueeze(0).unsqueeze(0)
+        sin = self.sin_cached[:L, :].to(x.dtype).unsqueeze(0).unsqueeze(0)
         Q = Q * cos + rotate_half(Q) * sin
         K = K * cos + rotate_half(K) * sin
         if self.num_kv_heads != self.num_heads:
@@ -148,6 +148,7 @@ class MyModel(nn.Module):
         self.layers=nn.ModuleList()
         self.max_seq_len=max_seq_len
         self.d_model=d_model
+        self.grand_ckp=False
         for _ in range(num_layers):
             self.layers.append(TransformerBlock(d_model=d_model,
                                                 num_heads=num_heads,
@@ -157,6 +158,8 @@ class MyModel(nn.Module):
         self.final_norm=nn.RMSNorm(d_model)
         self.lm_head=nn.Linear(d_model, vocab_size, bias=False)
 
+    def gradient_checkpointing_enable(self,**args):
+        self.grand_ckp=True
 
     def forward(self, input_ids,**kwargs):
         """
@@ -166,8 +169,12 @@ class MyModel(nn.Module):
         We guarantee args is like above.
         """
         x=self.embedding(input_ids)* (self.d_model ** 0.5)
-        for layer in self.layers:
-            x = layer(x)
+        if self.grand_ckp:
+            for layer in self.layers:
+                x = checkpoint(layer, x, use_reentrant=False)
+        else:
+            for layer in self.layers:
+                x = layer(x)
         x=self.final_norm(x)
         logits=self.lm_head(x)
         return logits

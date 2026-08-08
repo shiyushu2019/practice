@@ -46,8 +46,9 @@ training_args = TrainingArguments(
                     warmup_ratio=0.03,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=2,
-                    per_device_eval_batch_size=1,
-                    gradient_accumulation_steps=5,
+                    per_device_eval_batch_size=6,
+                    gradient_accumulation_steps=4,
+                    gradient_checkpointing=True,
 
                     #eval_strategy="epoch",
                     eval_strategy="steps",
@@ -147,14 +148,14 @@ if __name__ == "__main__":
             
             book_cnt+=1
         print(f"having {book_cnt} books")
-        torch.save(all_blocks,"data/data.pth")
+        torch.save(all_blocks,"checkpoints/data.pth")
     else:
         all_blocks=torch.load("checkpoints/data.pth",weights_only=False)
         print(f"loaded cache blocks: {len(all_blocks)}")
 
     random.shuffle(all_blocks)
     
-    split = int(0.95 * len(all_blocks))
+    split = int(0.993 * len(all_blocks))
     train_blocks = all_blocks[:split]
     eval_blocks = all_blocks[split:]
 
