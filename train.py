@@ -18,6 +18,14 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B",trust_remote_code=True)
+if tokenizer.eos_token_id is not None:
+    pad_token_id = tokenizer.eos_token_id
+else:
+    pad_token_id = 151643  
+    tokenizer.eos_token = tokenizer.decode([pad_token_id]) 
+tokenizer.pad_token = tokenizer.decode([pad_token_id])
+tokenizer.pad_token_id = pad_token_id
+
 model = MyModel(vocab_size=tokenizer.vocab_size,
                     num_layers=24,
                     d_model=2048,
@@ -40,8 +48,8 @@ training_args = TrainingArguments(
     gradient_accumulation_steps=2,
     gradient_checkpointing=True,
 
-    eval_strategy="epoch",
-    #eval_strategy="steps",
+    #eval_strategy="epoch",
+    eval_strategy="steps",
     eval_steps=250,
     metric_for_best_model="eval_loss",
     greater_is_better=False, 
@@ -51,7 +59,7 @@ training_args = TrainingArguments(
     save_strategy="best",
     
     fp16=True,
-    dataloader_num_workers=4,
+    dataloader_num_workers=2,
     max_grad_norm=1.0,             
 )
 
@@ -69,13 +77,8 @@ def collate_fn(batch):
     # 生成 labels：向右移位，最后一位用 -100 忽略
     labels = torch.cat([input_ids[:, 1:],
                         torch.full((B, 1), -100, dtype=torch.long)], dim=1)
-    # 复制因果掩码到 batch 维度
-    # 无 padding，全 False
-    #key_padding_mask = torch.zeros(B, L, dtype=torch.bool)
-    return {
-        'input_ids': input_ids,
-        'labels': labels,
-    }
+    labels[labels == pad_token_id] = -100
+    return {'input_ids': input_ids, 'labels': labels}
 
 class MyTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
@@ -120,19 +123,27 @@ def set_seed(seed=42):
 
 if __name__ == "__main__":
     set_seed(42)
-    text = ""
+    
+    block_size = model.max_seq_len
+    all_blocks = []
+
     for filepath in sorted(glob.glob("./data/*.txt")):
         with open(filepath, 'r', encoding='utf-8') as f:
-            text += f.read()
-    tokenizer.model_max_length = 1000000
-    tokens = tokenizer.encode(text, add_special_tokens=False)
-    block_size = model.max_seq_len         
-    blocks = [tokens[i:i+block_size] for i in range(0, len(tokens), block_size)
-              if len(tokens[i:i+block_size]) == block_size]
-    random.shuffle(blocks)
-    split = int(0.95 * len(blocks))
-    train_blocks = blocks[:split]
-    eval_blocks = blocks[split:]
+            text = f.read()
+        tokens = tokenizer.encode(text, add_special_tokens=False)
+
+        for i in range(0, len(tokens), block_size):
+            block = tokens[i:i+block_size]
+            if len(block) < block_size:
+                # 补全到 block_size
+                block = block + [pad_token_id] * (block_size - len(block))
+            all_blocks.append(block)
+    
+    random.shuffle(all_blocks)
+    
+    split = int(0.95 * len(all_blocks))
+    train_blocks = all_blocks[:split]
+    eval_blocks = all_blocks[split:]
 
     train_dataset = TextDataset(train_blocks)
     eval_dataset = TextDataset(eval_blocks)
