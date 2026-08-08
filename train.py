@@ -7,6 +7,7 @@ import random
 import glob
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+import os
 from transformers import (
     Trainer,
     TrainingArguments,
@@ -45,8 +46,8 @@ training_args = TrainingArguments(
                     warmup_ratio=0.03,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=2,
-                    per_device_eval_batch_size=2,
-                    gradient_accumulation_steps=4,
+                    per_device_eval_batch_size=1,
+                    gradient_accumulation_steps=5,
 
                     #eval_strategy="epoch",
                     eval_strategy="steps",
@@ -59,6 +60,7 @@ training_args = TrainingArguments(
                     save_strategy="best",
                     
                     fp16=True,
+                    optim="adamw_8bit",
                     dataloader_num_workers=2,
                     max_grad_norm=1.0
                     )
@@ -125,24 +127,31 @@ if __name__ == "__main__":
     set_seed(42)
     
     block_size = model.max_seq_len
-    all_blocks = []
 
-    book_cnt=0
-    for filepath in sorted(glob.glob("./data/*.txt")):
-        with open(filepath, 'r', encoding='utf-8') as f:
-            text = f.read()
-        tokens = tokenizer.encode(text, add_special_tokens=False)
+    if not os.path.exists("checkpoints/data.pth"):
+        print(f"loading books")
+        all_blocks = []
 
-        for i in range(0, len(tokens), block_size):
-            block = tokens[i:i+block_size]
-            if len(block) < block_size:
-                # 补全到 block_size
-                block = block + [pad_token_id] * (block_size - len(block))
-            all_blocks.append(block)
-        
-        book_cnt+=1
-    print(f"having {book_cnt} books")
-    
+        book_cnt=0
+        for filepath in sorted(glob.glob("./data/*.txt")):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                text = f.read()
+            tokens = tokenizer.encode(text, add_special_tokens=False)
+
+            for i in range(0, len(tokens), block_size):
+                block = tokens[i:i+block_size]
+                if len(block) < block_size:
+                    # 补全到 block_size
+                    block = block + [pad_token_id] * (block_size - len(block))
+                all_blocks.append(block)
+            
+            book_cnt+=1
+        print(f"having {book_cnt} books")
+        torch.save(all_blocks,"data/data.pth")
+    else:
+        all_blocks=torch.load("checkpoints/data.pth",weights_only=False)
+        print(f"loaded cache blocks: {len(all_blocks)}")
+
     random.shuffle(all_blocks)
     
     split = int(0.95 * len(all_blocks))
