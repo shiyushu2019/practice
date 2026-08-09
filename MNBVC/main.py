@@ -1,8 +1,14 @@
 # git clone https://www.modelscope.cn/datasets/liwu/MNBVC.git "/data1/dataset/jssnu005/sys/MNBVC"
 
 from datasets import load_dataset
+from datasets import DatasetDict
+import glob
+import random
+import hashlib
 
 data_dir = "/data1/dataset/jssnu005/sys/MNBVC"
+file_list = glob.glob(f"{data_dir}/**/*.jsonl.gz", recursive=True)
+random.shuffle(file_list) 
 
 # 定义允许的纯文本/代码扩展名（白名单）
 ALLOWED_EXTS = {
@@ -28,20 +34,23 @@ def keep_allowed_ext(example):
 # 加载数据集（流式）
 dataset = load_dataset(
     "json",
-    data_files=f"{data_dir}/**/*.jsonl.gz",
+    data_files=file_list,
     split="train",
     streaming=True,
 )
 
 # 应用过滤（惰性，不会立即执行）
 dataset = dataset.filter(keep_allowed_ext)
-#print("total:",len(dataset))
 
-# 测试：迭代前几条，打印 text 预览
-for i, sample in enumerate(dataset):
-    print(f"样本 {i}:")
-    #print(sample.get('text', '')[:300])  # 只打印前300字符，避免刷屏
-    print(sample.get('ext', '')[:300])  # 只打印前300字符，避免刷屏
-    print("---")
-    if i >= 100:   # 只取前5条演示
-        break
+if __name__=="__main__":
+
+    print(next(iter(dataset)).keys())
+    exit(0)
+    # 测试：迭代前几条，打印 text 预览
+    for i, sample in enumerate(dataset):
+        print(f"样本 {i}:")
+        #print(sample.get('text', '')[:300])  # 只打印前300字符，避免刷屏
+        #print(sample.get('ext', ''))
+        print(type(sample.get('text', '')))
+        if i >= 100:   # 只取前5条演示
+            break
