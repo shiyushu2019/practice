@@ -8,6 +8,7 @@ import glob
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 import os
+from safetensors.torch import load_file
 from transformers import (
     Trainer,
     TrainingArguments,
@@ -45,18 +46,18 @@ training_args = TrainingArguments(
                     weight_decay=0.01,
                     warmup_ratio=0.03,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=2,
+                    per_device_train_batch_size=4,
                     per_device_eval_batch_size=6,
                     gradient_accumulation_steps=4,
                     gradient_checkpointing=True,
 
                     #eval_strategy="epoch",
                     eval_strategy="steps",
-                    eval_steps=500,
+                    eval_steps=1000,
                     metric_for_best_model="eval_loss",
                     greater_is_better=False, 
                     load_best_model_at_end=True, 
-                    save_total_limit=1,
+                    save_total_limit=5,
                     logging_steps=30,
                     save_strategy="best",
                     
@@ -133,20 +134,25 @@ if __name__ == "__main__":
         print(f"loading books")
         all_blocks = []
 
-        book_cnt=0
+        book_cnt = 0
+        stride = max(128, block_size // 8)
         for filepath in sorted(glob.glob("./data/*.txt")):
             with open(filepath, 'r', encoding='utf-8') as f:
                 text = f.read()
             tokens = tokenizer.encode(text, add_special_tokens=False)
 
-            for i in range(0, len(tokens), block_size):
-                block = tokens[i:i+block_size]
-                if len(block) < block_size:
-                    # 补全到 block_size
-                    block = block + [pad_token_id] * (block_size - len(block))
+            if len(tokens) <= block_size:
+                block = tokens + [pad_token_id] * (block_size - len(tokens))
                 all_blocks.append(block)
-            
-            book_cnt+=1
+            else:
+                for start in range(0, len(tokens) - block_size + 1, stride):
+                    block = tokens[start:start + block_size]
+                    all_blocks.append(block)
+                if (len(tokens) - block_size) % stride != 0:
+                    block = tokens[-block_size:]
+                    all_blocks.append(block)
+
+            book_cnt += 1
         print(f"having {book_cnt} books")
         torch.save(all_blocks,"checkpoints/data.pth")
     else:
@@ -162,6 +168,9 @@ if __name__ == "__main__":
     train_dataset = TextDataset(train_blocks)
     eval_dataset = TextDataset(eval_blocks)
 
+    #checkpoint_path = "./checkpoints/checkpoint-13000/model.safetensors"
+    #state_dict = load_file(checkpoint_path)
+    #model.load_state_dict(state_dict, strict=False)
     trainer = MyTrainer(
         model=model,
         args=training_args,
