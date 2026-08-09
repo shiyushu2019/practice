@@ -2,16 +2,15 @@
 
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, Qwen2Config, Qwen2ForCausalLM
 import argparse
 import os
 from safetensors.torch import load_file
-from transformers import Qwen2Config, Qwen2ForCausalLM
 from train import model_config
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B", trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B", trust_remote_code=True)
 model = Qwen2ForCausalLM(model_config).to(DEVICE)
 model.config.use_cache = True
 

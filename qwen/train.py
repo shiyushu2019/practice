@@ -1,10 +1,8 @@
 from transformers import Qwen2Config, Qwen2ForCausalLM
 import torch
-import torch.nn as nn
 import random
 import glob
 from torch.utils.data import Dataset
-import torch.nn.functional as F
 import os
 from transformers import (
     Trainer,
@@ -14,7 +12,7 @@ from transformers import (
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen-7B",trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B",trust_remote_code=True)
 tokenizer.model_max_length = 10000000
 if tokenizer.eos_token_id is not None:
     pad_token_id = tokenizer.eos_token_id
