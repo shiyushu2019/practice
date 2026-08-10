@@ -112,25 +112,43 @@ if __name__ == "__main__":
 
     def keep_allowed_ext(example):
         """返回 True 表示保留，False 表示过滤掉"""
-        ext = example.get('ext', '')
-        ext = ext.strip().lower()
-        return ext in ALLOWED_EXTS
+        try:
+            ext = example.get('ext', '')
+            if not isinstance(ext, str):
+                ext = str(ext) if ext is not None else ''
+            ext = ext.strip().lower()
+            return ext in ALLOWED_EXTS
+        except Exception as e:
+            print(f"[error] keep_allowed_ext failed: {e}; example={example}")
+            return False
     
     dataset = dataset.filter(keep_allowed_ext)
 
     def tokenize_and_chunk(examples):
-        block_size = model.config.max_position_embeddings
-        stride = block_size
-        texts = examples['text']
-        encodings = tokenizer(
-            texts,
-            return_overflowing_tokens=True,
-            max_length=block_size,
-            stride=stride,
-            truncation=True,
-            add_special_tokens=False,
-        )
-        return {'input_ids': encodings['input_ids']}
+        try:
+            block_size = model.config.max_position_embeddings
+            stride = block_size
+            text = examples.get('text', '')
+            if text is None:
+                text = ''
+            elif not isinstance(text, str):
+                text = str(text)
+            if len(text) == 0:
+                return {'input_ids': []}
+
+            encodings = tokenizer(
+                text,
+                return_overflowing_tokens=True,
+                max_length=block_size,
+                stride=stride,
+                truncation=True,
+                add_special_tokens=False,
+            )
+            return {'input_ids': encodings.get('input_ids', [])}
+        except Exception as e:
+            identifier = examples.get('path') or examples.get('文件名') or examples.get('md5') or '<unknown>'
+            print(f"[error] tokenize_and_chunk failed for {identifier}: {e}")
+            return {'input_ids': []}
 
     dataset = dataset.map(
         tokenize_and_chunk,
@@ -138,7 +156,7 @@ if __name__ == "__main__":
         remove_columns=dataset.column_names,
         #remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
     )
-    dataset = dataset.filter(lambda x: len(x['input_ids']) > 0)
+    dataset = dataset.filter(lambda x: len(x.get('input_ids', [])) > 0)
     
     #eval_dataset = dataset.take(10000)
     #train_dataset = dataset.skip(10000)
