@@ -25,13 +25,13 @@ tokenizer.pad_token_id = pad_token_id
 
 model_config = Qwen2Config(
                     vocab_size=tokenizer.vocab_size,
-                    hidden_size=2048,              
+                    hidden_size=2048,   
+                    intermediate_size=11008,
                     num_hidden_layers=24,           
                     num_attention_heads=16,       
                     num_key_value_heads=8,          
-                    intermediate_size=11008,
                     max_position_embeddings=2048, 
-                    rms_norm_eps=1e-6,
+                    #rms_norm_eps=1e-6,
                     attention_dropout=0.0,
                     rope_parameters={"rope_theta": 100000.0, "rope_type": "default"},
                     pad_token_id=tokenizer.pad_token_id,
@@ -53,15 +53,15 @@ training_args = TrainingArguments(
                     #warmup_ratio=0.03,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=2,
-                    per_device_eval_batch_size=6,
-                    gradient_accumulation_steps=4,
+                    #per_device_eval_batch_size=6,
+                    gradient_accumulation_steps=8,
                     gradient_checkpointing=True,
 
-                    eval_strategy="steps",
-                    eval_steps=5000,
-                    metric_for_best_model="eval_loss",
-                    greater_is_better=False, 
-                    load_best_model_at_end=True, 
+                    #eval_strategy="steps",
+                    #eval_steps=5000,
+                    #metric_for_best_model="eval_loss",
+                    #greater_is_better=False, 
+                    #load_best_model_at_end=True, 
                     save_total_limit=3,
                     logging_steps=30,
                     save_strategy="steps",
@@ -90,7 +90,7 @@ if __name__ == "__main__":
                         split="train",
                         streaming=True,
                     )
-    # 定义允许的纯文本/代码扩展名（白名单）
+
     ALLOWED_EXTS = {
         '.py', '.java', '.c', '.cpp', '.h', '.js', '.ts', '.go', '.rs',
         '.md', '.txt', '.json', '.xml', '.html', '.css', '.sh', '.r',
@@ -105,9 +105,7 @@ if __name__ == "__main__":
     def keep_allowed_ext(example):
         """返回 True 表示保留，False 表示过滤掉"""
         ext = example.get('ext', '')
-        # 转为小写并去除首尾空格，确保匹配
         ext = ext.strip().lower()
-        # 如果扩展名不在白名单中，则丢弃
         return ext in ALLOWED_EXTS
     
     dataset = dataset.filter(keep_allowed_ext)
@@ -136,19 +134,21 @@ if __name__ == "__main__":
     dataset = dataset.map(
         tokenize_and_chunk,
         batched=False,
-        remove_columns=dataset.column_names,
-        # remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
+        # remove_columns=dataset.column_names,
+        remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
     )
     dataset = dataset.filter(lambda x: len(x['input_ids']) > 0)
+    dataset = dataset.explode("input_ids")
     
-    eval_dataset = dataset.take(10000)
-    train_dataset = dataset.skip(10000)
+    #eval_dataset = dataset.take(10000)
+    #train_dataset = dataset.skip(10000)
+    train_dataset=dataset
 
     trainer = Trainer(
                     model=model,
                     args=training_args,
                     train_dataset=train_dataset,
-                    eval_dataset=eval_dataset,
+                    #eval_dataset=eval_dataset,
                     data_collator=collate_fn,
                 )
     trainer.train()
