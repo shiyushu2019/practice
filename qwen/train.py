@@ -1,3 +1,5 @@
+# export CUDA_VISIBLE_DEVICES=2
+
 from transformers import Qwen2Config, Qwen2ForCausalLM
 import torch
 import random
@@ -26,13 +28,14 @@ if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_tok
 pad_token_id = tokenizer.pad_token_id
 
 model_config = Qwen2Config(
-                    vocab_size=tokenizer.vocab_size,
-                    hidden_size=2048,   
-                    intermediate_size=11008,
-                    num_hidden_layers=24,           
-                    num_attention_heads=16,       
-                    num_key_value_heads=8,          
-                    max_position_embeddings=2048, 
+                    #vocab_size=tokenizer.vocab_size,
+                    vocab_size=len(tokenizer),
+                    hidden_size=2560,   
+                    intermediate_size=14080,
+                    num_hidden_layers=30,           
+                    num_attention_heads=20,       
+                    num_key_value_heads=10,          
+                    max_position_embeddings=4096, 
                     #rms_norm_eps=1e-6,
                     attention_dropout=0.0,
                     rope_parameters={"rope_theta": 100000.0, "rope_type": "default"},
@@ -41,7 +44,7 @@ model_config = Qwen2Config(
                     eos_token_id=tokenizer.eos_token_id,
                     use_cache=False,  # 训练时关闭缓存
                 )
-model = Qwen2ForCausalLM.from_config(model_config).to(DEVICE)    
+model = Qwen2ForCausalLM(model_config).to(DEVICE)    
 
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
@@ -54,7 +57,7 @@ training_args = TrainingArguments(
                     weight_decay=0.01,
                     #warmup_ratio=0.03,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=2,
+                    per_device_train_batch_size=1,
                     #per_device_eval_batch_size=6,
                     gradient_accumulation_steps=8,
                     gradient_checkpointing=True,
@@ -65,7 +68,7 @@ training_args = TrainingArguments(
                     #greater_is_better=False, 
                     #load_best_model_at_end=True, 
                     save_total_limit=3,
-                    logging_steps=30,
+                    logging_steps=5,
                     save_strategy="steps",
                     save_steps=5000,
                     
@@ -113,8 +116,13 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
 
+    total_b = sum(p.numel() for p in model.parameters()) / 1e9
+    print(f"参数量: {total_b:.4f} B")
+
     data_dir = "/data1/dataset/jssnu005/sys/MNBVC"
     file_list = glob.glob(f"{data_dir}/**/*.jsonl.gz", recursive=True)
+    print(f"Number of files: {len(file_list)}")
+
     random.shuffle(file_list) 
     dataset = load_dataset(
                         "json",
