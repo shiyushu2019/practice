@@ -1,9 +1,7 @@
-from transformers import Qwen2Config, Qwen2ForCausalLM, DataCollatorForLanguageModeling
+from transformers import Qwen2Config, Qwen2ForCausalLM
 import torch
 import random
 import glob
-from torch.utils.data import Dataset
-import os
 from datasets import load_dataset
 from transformers import (
     Trainer,
@@ -84,8 +82,13 @@ def collate_fn(batch):
     valid_input_ids = []
     for item in batch:
         seq = item.get('input_ids')
-        if isinstance(seq, list) and len(seq) > 0 and all(isinstance(tok, int) for tok in seq):
-            valid_input_ids.append(seq)
+        if isinstance(seq, list) and len(seq) > 0:
+            if all(isinstance(tok, int) for tok in seq):
+                valid_input_ids.append(seq)
+            elif all(isinstance(chunk, list) and all(isinstance(tok, int) for tok in chunk) for chunk in seq):
+                valid_input_ids.extend(seq)
+            else:
+                counters['skipped_input_ids_examples'] += 1
         else:
             print(f"[error] collate_fn skipped invalid input_ids: {seq}")
             counters['skipped_input_ids_examples'] += 1
@@ -135,12 +138,14 @@ if __name__ == "__main__":
             if not isinstance(ext, str):
                 ext = str(ext) if ext is not None else ''
             ext = ext.strip().lower()
+            if not ext.startswith('.') and ext != '':
+                ext = '.' + ext
             if ext not in ALLOWED_EXTS:
                 counters['bad_ext_examples'] += 1
             return ext in ALLOWED_EXTS
         except Exception as e:
             counters['bad_ext_examples'] += 1
-            #print(f"[error] keep_allowed_ext failed: {e}; example={example}")
+            print(f"[error] keep_allowed_ext failed: {e}; example={example}")
             return False
     
     dataset = dataset.filter(keep_allowed_ext)
@@ -148,25 +153,41 @@ if __name__ == "__main__":
     def tokenize_and_chunk(examples):
         try:
             block_size = model.config.max_position_embeddings
-            stride = block_size
-            text = examples.get('text', '')
-            if text is None:
-                text = ''
-            elif not isinstance(text, str):
-                text = str(text)
-            if len(text) == 0:
-                counters['filtered_empty_input_ids'] += 1
-                return {'input_ids': []}
+            texts = examples.get('text', [])
+            if texts is None:
+                texts = []
+            if not isinstance(texts, list):
+                texts = [texts]
 
-            encodings = tokenizer(
-                text,
-                return_overflowing_tokens=True,
-                max_length=block_size,
-                stride=stride,
-                truncation=True,
-                add_special_tokens=False,
-            )
-            return {'input_ids': encodings.get('input_ids', [])}
+            chunked_input_ids = []
+            for text in texts:
+                if text is None:
+                    continue
+                if not isinstance(text, str):
+                    text = str(text)
+                if len(text) == 0:
+                    counters['filtered_empty_input_ids'] += 1
+                    continue
+
+                encodings = tokenizer(
+                    text,
+                    return_overflowing_tokens=True,
+                    max_length=block_size,
+                    stride=0,
+                    truncation=True,
+                    add_special_tokens=False,
+                )
+                chunk_ids = encodings.get('input_ids', [])
+                if isinstance(chunk_ids, list):
+                    if len(chunk_ids) == 0:
+                        continue
+                    if all(isinstance(tok, int) for tok in chunk_ids):
+                        chunked_input_ids.append(chunk_ids)
+                    else:
+                        for chunk in chunk_ids:
+                            if isinstance(chunk, list) and all(isinstance(tok, int) for tok in chunk):
+                                chunked_input_ids.append(chunk)
+            return {'input_ids': chunked_input_ids}
         except Exception as e:
             counters['tokenize_error_examples'] += 1
             identifier = examples.get('path') or examples.get('文件名') or examples.get('md5') or '<unknown>'
@@ -175,7 +196,8 @@ if __name__ == "__main__":
 
     dataset = dataset.map(
         tokenize_and_chunk,
-        batched=False,
+        batched=True,
+        batch_size=1,
         remove_columns=dataset.column_names,
         #remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
     )
