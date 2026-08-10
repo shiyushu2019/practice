@@ -2,6 +2,7 @@
 
 from transformers import Qwen2Config, Qwen2ForCausalLM
 import torch
+from torch.utils.data import IterableDataset
 import random
 import glob
 from datasets import load_dataset
@@ -79,33 +80,11 @@ training_args = TrainingArguments(
                 )
 
 def collate_fn(batch):
-    valid_input_ids = []
-    for item in batch:
-        seq = item.get('input_ids')
-        if isinstance(seq, list) and len(seq) > 0:
-            if all(isinstance(tok, int) for tok in seq):
-                valid_input_ids.append(seq)
-            elif all(isinstance(chunk, list) and all(isinstance(tok, int) for tok in chunk) for chunk in seq):
-                # seq is a list of chunks; filter out any empty chunks (eg. [[]])
-                filtered_chunks = [chunk for chunk in seq if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk)]
-                if len(filtered_chunks) > 0:
-                    valid_input_ids.extend(filtered_chunks)
-                else:
-                    counters['skipped_input_ids_examples'] += 1
-            else:
-                counters['skipped_input_ids_examples'] += 1
-        else:
-            print(f"[error] collate_fn skipped invalid input_ids: {seq}")
-            counters['skipped_input_ids_examples'] += 1
-
-    if len(valid_input_ids) == 0:
-        raise ValueError("No valid input_ids found in batch. Check dataset preprocessing for malformed examples.")
-
-    max_len = max(len(seq) for seq in valid_input_ids)
+    max_len = max(len(seq) for seq in batch)
     if max_len == 0:
         raise ValueError("All input_ids in batch are empty sequences (length 0). Check tokenizer output and filtering.")
     padded_input_ids = []
-    for seq in valid_input_ids:
+    for seq in batch:
         pad_len = max_len - len(seq)
         padded_seq = seq + [tokenizer.pad_token_id] * pad_len
         padded_input_ids.append(padded_seq)
@@ -114,114 +93,151 @@ def collate_fn(batch):
     labels[labels == tokenizer.pad_token_id] = -100
     return {'input_ids': input_ids, 'labels': labels}
 
+class BlocksDataset(IterableDataset):
+    def __init__(self,
+                data_dir = "/data1/dataset/jssnu005/sys/MNBVC"
+                ):
+        self.buffer=[]
+        self.pointer=self._get_pointer(data_dir = data_dir,)
+
+    def __iter__(self):
+        if len(self.buffer)>0:
+            yield self.buffer.pop()
+        else:
+            while not len(self.buffer)>0:
+                try:
+                    get = next(self.pointer)['input_ids']
+                except StopIteration:
+                    raise StopIteration
+                if isinstance(get, list) and len(get) > 0:
+                    if all(isinstance(tok, int) for tok in get):   # [1,2,3....]
+                        self.buffer.append(get)
+                    elif all(isinstance(chunk, list) and all(isinstance(tok, int) for tok in chunk) for chunk in get): # [[1,2,3....], [1,2,3,...]]
+                        # seq is a list of chunks; filter out any empty chunks (eg. [[]])
+                        filtered_chunks = [chunk for chunk in get if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk)]
+                        if len(filtered_chunks) > 0:
+                            self.buffer.extend(filtered_chunks)
+                        else:
+                            counters['skipped_input_ids_examples'] += 1
+                    else:
+                        counters['skipped_input_ids_examples'] += 1
+                else:
+                    print(f"[error] collate_fn skipped invalid input_ids: {get}")
+                    counters['skipped_input_ids_examples'] += 1
+            yield self.buffer.pop()
+
+    def _get_pointer(self,
+                    data_dir = "/data1/dataset/jssnu005/sys/MNBVC",
+                ):
+        
+        file_list = glob.glob(f"{data_dir}/**/*.jsonl.gz", recursive=True)
+        print(f"[BlocksDataset] Number of files: {len(file_list)}")
+    
+        random.shuffle(file_list) 
+        dataset = load_dataset(
+                            "json",
+                            data_files=file_list,
+                            split="train",
+                            streaming=True,
+                        )
+    
+        ALLOWED_EXTS = {
+            '.py', '.java', '.c', '.cpp', '.h', '.js', '.ts', '.go', '.rs',
+            '.md', '.txt', '.json', '.xml', '.html', '.css', '.sh', '.r',
+            '.ipynb', '.yaml', '.yml', '.toml', '.cfg', '.ini', '.csv',
+            '.xml', '.xsl', '.xsd', '.dtd', '.svg', '.rss', '.atom',
+            '.pl', '.pm', '.t', '.pod', '.cgi', '.rb', '.erb', '.rake',
+            '.php', '.phpt', '.phtml', '.lua', '.m', '.mm', '.swift',
+            '.vb', '.vbs', '.ps1', '.bat', '.cmd', '.bash', '.zsh',
+            '.fish', '.sql', '.db', '.sqlite', '.lisp', '.cl', '.el',
+            '.scala', '.kt', '.kts', '.dart', '.jl', '.r', '.rmd',
+        }
+    
+        def keep_allowed_ext(example):
+            """返回 True 表示保留，False 表示过滤掉"""
+            try:
+                ext = example.get('ext', '')
+                if not isinstance(ext, str):
+                    ext = str(ext) if ext is not None else ''
+                ext = ext.strip().lower()
+                if not ext.startswith('.') and ext != '':
+                    ext = '.' + ext
+                if ext not in ALLOWED_EXTS:
+                    counters['bad_ext_examples'] += 1
+                return ext in ALLOWED_EXTS
+            except Exception as e:
+                counters['bad_ext_examples'] += 1
+                print(f"[error] keep_allowed_ext failed: {e}; example={example}")
+                return False
+        
+        dataset = dataset.filter(keep_allowed_ext)
+    
+        def tokenize_and_chunk(examples):
+            try:
+                block_size = model.config.max_position_embeddings
+                texts = examples.get('text', [])
+                if texts is None:
+                    texts = []
+                if not isinstance(texts, list):
+                    texts = [texts]
+    
+                chunked_input_ids = []
+                for text in texts:
+                    if text is None:
+                        continue
+                    if not isinstance(text, str):
+                        text = str(text)
+                    if len(text) == 0:
+                        counters['filtered_empty_input_ids'] += 1
+                        continue
+    
+                    encodings = tokenizer(
+                        text,
+                        return_overflowing_tokens=True,
+                        max_length=block_size,
+                        stride=0,
+                        truncation=True,
+                        add_special_tokens=False,
+                    )
+                    chunk_ids = encodings.get('input_ids', [])
+                    if isinstance(chunk_ids, list):
+                        if len(chunk_ids) == 0:
+                            continue
+                        # chunk_ids can be either a flat list of ints (single chunk) or a list of chunks
+                        if all(isinstance(tok, int) for tok in chunk_ids):
+                            if len(chunk_ids) > 0:
+                                chunked_input_ids.append(chunk_ids)
+                        else:
+                            for chunk in chunk_ids:
+                                if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
+                                    chunked_input_ids.append(chunk)
+                return {'input_ids': chunked_input_ids}
+            except Exception as e:
+                counters['tokenize_error_examples'] += 1
+                identifier = examples.get('path') or examples.get('文件名') or examples.get('md5') or '<unknown>'
+                print(f"[error] tokenize_and_chunk failed for {identifier}: {e}")
+                return {'input_ids': []}
+    
+        dataset = dataset.map(
+            tokenize_and_chunk,
+            batched=True,
+            batch_size=100,
+            remove_columns=dataset.column_names,
+            #remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
+        )
+        dataset = dataset.filter(
+            lambda x: isinstance(x.get('input_ids', None), list) and len(x['input_ids']) > 0
+        )
+
+        return iter(dataset) # return the pointer
+
+
 if __name__ == "__main__":
 
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
 
-    data_dir = "/data1/dataset/jssnu005/sys/MNBVC"
-    file_list = glob.glob(f"{data_dir}/**/*.jsonl.gz", recursive=True)
-    print(f"Number of files: {len(file_list)}")
-
-    random.shuffle(file_list) 
-    dataset = load_dataset(
-                        "json",
-                        data_files=file_list,
-                        split="train",
-                        streaming=True,
-                    )
-
-    ALLOWED_EXTS = {
-        '.py', '.java', '.c', '.cpp', '.h', '.js', '.ts', '.go', '.rs',
-        '.md', '.txt', '.json', '.xml', '.html', '.css', '.sh', '.r',
-        '.ipynb', '.yaml', '.yml', '.toml', '.cfg', '.ini', '.csv',
-        '.xml', '.xsl', '.xsd', '.dtd', '.svg', '.rss', '.atom',
-        '.pl', '.pm', '.t', '.pod', '.cgi', '.rb', '.erb', '.rake',
-        '.php', '.phpt', '.phtml', '.lua', '.m', '.mm', '.swift',
-        '.vb', '.vbs', '.ps1', '.bat', '.cmd', '.bash', '.zsh',
-        '.fish', '.sql', '.db', '.sqlite', '.lisp', '.cl', '.el',
-        '.scala', '.kt', '.kts', '.dart', '.jl', '.r', '.rmd',
-    }
-
-    def keep_allowed_ext(example):
-        """返回 True 表示保留，False 表示过滤掉"""
-        try:
-            ext = example.get('ext', '')
-            if not isinstance(ext, str):
-                ext = str(ext) if ext is not None else ''
-            ext = ext.strip().lower()
-            if not ext.startswith('.') and ext != '':
-                ext = '.' + ext
-            if ext not in ALLOWED_EXTS:
-                counters['bad_ext_examples'] += 1
-            return ext in ALLOWED_EXTS
-        except Exception as e:
-            counters['bad_ext_examples'] += 1
-            print(f"[error] keep_allowed_ext failed: {e}; example={example}")
-            return False
-    
-    dataset = dataset.filter(keep_allowed_ext)
-
-    def tokenize_and_chunk(examples):
-        try:
-            block_size = model.config.max_position_embeddings
-            texts = examples.get('text', [])
-            if texts is None:
-                texts = []
-            if not isinstance(texts, list):
-                texts = [texts]
-
-            chunked_input_ids = []
-            for text in texts:
-                if text is None:
-                    continue
-                if not isinstance(text, str):
-                    text = str(text)
-                if len(text) == 0:
-                    counters['filtered_empty_input_ids'] += 1
-                    continue
-
-                encodings = tokenizer(
-                    text,
-                    return_overflowing_tokens=True,
-                    max_length=block_size,
-                    stride=0,
-                    truncation=True,
-                    add_special_tokens=False,
-                )
-                chunk_ids = encodings.get('input_ids', [])
-                if isinstance(chunk_ids, list):
-                    if len(chunk_ids) == 0:
-                        continue
-                    # chunk_ids can be either a flat list of ints (single chunk) or a list of chunks
-                    if all(isinstance(tok, int) for tok in chunk_ids):
-                        if len(chunk_ids) > 0:
-                            chunked_input_ids.append(chunk_ids)
-                    else:
-                        for chunk in chunk_ids:
-                            if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
-                                chunked_input_ids.append(chunk)
-            return {'input_ids': chunked_input_ids}
-        except Exception as e:
-            counters['tokenize_error_examples'] += 1
-            identifier = examples.get('path') or examples.get('文件名') or examples.get('md5') or '<unknown>'
-            print(f"[error] tokenize_and_chunk failed for {identifier}: {e}")
-            return {'input_ids': []}
-
-    dataset = dataset.map(
-        tokenize_and_chunk,
-        batched=True,
-        batch_size=1,
-        remove_columns=dataset.column_names,
-        #remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
-    )
-    dataset = dataset.filter(
-        lambda x: isinstance(x.get('input_ids', None), list) and len(x['input_ids']) > 0
-    )
-    
-    #eval_dataset = dataset.take(10000)
-    #train_dataset = dataset.skip(10000)
-    train_dataset=dataset
+    train_dataset=BlocksDataset()
 
     trainer = Trainer(
                     model=model,
