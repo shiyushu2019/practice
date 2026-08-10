@@ -16,28 +16,26 @@ class BlocksDataset(IterableDataset):
         self.pointer=self._get_pointer(data_dir = data_dir,)
 
     def __iter__(self):
-        if len(self.buffer) > 0:
-            yield self.buffer.pop()
-        else:
-            while not len(self.buffer) > 0:
-                try:
-                    item = next(self.pointer)
+        while True:
+            try:
+                while not len(self.buffer) > 0:
+                    try:
+                        item = next(self.pointer)
+                    except StopIteration:
+                        return
                     if not isinstance(item, dict):
                         self.logger.warning(f"skipped non-dict item from pointer: {type(item)}")
                         continue
                     get = item.get('input_ids')
-                except StopIteration:
-                    raise
-                except Exception as e:
-                    self.logger.error(f"failed reading example from pointer: {e}")
-                    continue
-
-                sequences = self._normalize_input_ids(get)
-                if len(sequences) > 0:
-                    self.buffer.extend(sequences)
-                else:
-                    self.logger.warning(f"skipped invalid input_ids structure: {type(get)} {get}")
-            yield self.buffer.pop()
+                    sequences = self._normalize_input_ids(get)
+                    if len(sequences) > 0:
+                        self.buffer.extend(sequences)
+                    else:
+                        self.logger.warning(f"skipped invalid input_ids structure: {type(get)} {get}")
+                yield self.buffer.pop()       
+            except Exception as e:
+                self.logger.error(f"failed reading example from pointer: {e}")
+                continue
 
     def _normalize_input_ids(self, input_ids):
         if isinstance(input_ids, tuple):
