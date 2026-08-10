@@ -74,10 +74,20 @@ training_args = TrainingArguments(
                 )
 
 def collate_fn(batch):
-    max_len = max(len(item['input_ids']) for item in batch)
-    padded_input_ids = []
+    valid_input_ids = []
     for item in batch:
-        seq = item['input_ids']
+        seq = item.get('input_ids')
+        if isinstance(seq, list) and len(seq) > 0 and all(isinstance(tok, int) for tok in seq):
+            valid_input_ids.append(seq)
+        else:
+            print(f"[error] collate_fn skipped invalid input_ids: {seq}")
+
+    if len(valid_input_ids) == 0:
+        raise ValueError("No valid input_ids found in batch. Check dataset preprocessing for malformed examples.")
+
+    max_len = max(len(seq) for seq in valid_input_ids)
+    padded_input_ids = []
+    for seq in valid_input_ids:
         pad_len = max_len - len(seq)
         padded_seq = seq + [tokenizer.pad_token_id] * pad_len
         padded_input_ids.append(padded_seq)
@@ -156,7 +166,9 @@ if __name__ == "__main__":
         remove_columns=dataset.column_names,
         #remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
     )
-    dataset = dataset.filter(lambda x: len(x.get('input_ids', [])) > 0)
+    dataset = dataset.filter(
+        lambda x: isinstance(x.get('input_ids', None), list) and len(x['input_ids']) > 0
+    )
     
     #eval_dataset = dataset.take(10000)
     #train_dataset = dataset.skip(10000)
