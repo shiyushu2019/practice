@@ -18,15 +18,12 @@ counters = {
     'filtered_empty_input_ids': 0,
 }
 
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B",trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B", trust_remote_code=True)
 tokenizer.model_max_length = 10000000
-if tokenizer.eos_token_id is not None:
-    pad_token_id = tokenizer.eos_token_id
-else:
-    pad_token_id = 151643  
-    tokenizer.eos_token = tokenizer.decode([pad_token_id]) 
-tokenizer.pad_token = tokenizer.decode([pad_token_id])
-tokenizer.pad_token_id = pad_token_id
+if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
+    # add a dedicated pad token (will update tokenizer.vocab_size)
+    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+pad_token_id = tokenizer.pad_token_id
 
 model_config = Qwen2Config(
                     vocab_size=tokenizer.vocab_size,
