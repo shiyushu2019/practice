@@ -82,11 +82,18 @@ training_args = TrainingArguments(
                 )
 
 def collate_fn(batch):
-    max_len = max(len(seq) for seq in batch)
-    if max_len == 0:
-        raise ValueError("All input_ids in batch are empty sequences (length 0). Check tokenizer output and filtering.")
-    padded_input_ids = []
+    valid_batch = []
     for seq in batch:
+        if isinstance(seq, list) and len(seq) > 0 and all(isinstance(tok, int) for tok in seq):
+            valid_batch.append(seq)
+        else:
+            logger.warning(f"skipped invalid sequence in collate_fn: {seq}")
+    if len(valid_batch) == 0:
+        logger.warning("collate_fn received no valid sequences, using one pad-only fallback example.")
+        valid_batch = [[tokenizer.pad_token_id]]
+    max_len = max(len(seq) for seq in valid_batch)
+    padded_input_ids = []
+    for seq in valid_batch:
         pad_len = max_len - len(seq)
         padded_seq = seq + [tokenizer.pad_token_id] * pad_len
         padded_input_ids.append(padded_seq)
@@ -95,171 +102,16 @@ def collate_fn(batch):
     labels[labels == tokenizer.pad_token_id] = -100
     return {'input_ids': input_ids, 'labels': labels}
 
-class BlocksDataset(IterableDataset):
-    def __init__(self,
-                data_dir = "/data1/dataset/jssnu005/sys/MNBVC"
-                ):
-        self.buffer=[]
-        self.pointer=self._get_pointer(data_dir = data_dir,)
-
-    def __iter__(self):
-        if len(self.buffer) > 0:
-            yield self.buffer.pop()
-        else:
-            while not len(self.buffer) > 0:
-                try:
-                    item = next(self.pointer)
-                    get = item.get('input_ids') if isinstance(item, dict) else None
-                except StopIteration:
-                    raise
-                except Exception as e:
-                    logger.error(f"failed reading example from pointer: {e}")
-                    continue
-
-                sequences = self._normalize_input_ids(get)
-                if len(sequences) > 0:
-                    self.buffer.extend(sequences)
-                else:
-                    logger.warning(f"skipped invalid input_ids structure: {type(get)} {get}")
-            yield self.buffer.pop()
-
-    def _normalize_input_ids(self, input_ids):
-        if not isinstance(input_ids, list):
-            return []
-        if len(input_ids) == 0:
-            return []
-        if all(isinstance(tok, int) for tok in input_ids):
-            return [input_ids]
-        sequences = []
-        for chunk in input_ids:
-            if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
-                sequences.append(chunk)
-            else:
-                logger.warning(f"invalid chunk in input_ids list: {chunk}")
-        return sequences
-
-    def _get_pointer(self,
-                    data_dir = "/data1/dataset/jssnu005/sys/MNBVC",
-                ):
-        
-        file_list = glob.glob(f"{data_dir}/**/*.jsonl.gz", recursive=True)
-        print(f"[BlocksDataset] Number of files: {len(file_list)}")
-    
-        random.shuffle(file_list) 
-        dataset = load_dataset(
-                            "json",
-                            data_files=file_list,
-                            split="train",
-                            streaming=True,
-                        )
-    
-        ALLOWED_EXTS = {
-            '.py', '.java', '.c', '.cpp', '.h', '.js', '.ts', '.go', '.rs',
-            '.md', '.txt', '.json', '.xml', '.html', '.css', '.sh', '.r',
-            '.ipynb', '.yaml', '.yml', '.toml', '.cfg', '.ini', '.csv',
-            '.xml', '.xsl', '.xsd', '.dtd', '.svg', '.rss', '.atom',
-            '.pl', '.pm', '.t', '.pod', '.cgi', '.rb', '.erb', '.rake',
-            '.php', '.phpt', '.phtml', '.lua', '.m', '.mm', '.swift',
-            '.vb', '.vbs', '.ps1', '.bat', '.cmd', '.bash', '.zsh',
-            '.fish', '.sql', '.db', '.sqlite', '.lisp', '.cl', '.el',
-            '.scala', '.kt', '.kts', '.dart', '.jl', '.r', '.rmd',
-        }
-    
-        def keep_allowed_ext(example):
-            """返回 True 表示保留，False 表示过滤掉"""
-            try:
-                ext = example.get('ext', '')
-                if not isinstance(ext, str):
-                    ext = str(ext) if ext is not None else ''
-                ext = ext.strip().lower()
-                if not ext.startswith('.') and ext != '':
-                    ext = '.' + ext
-                if ext not in ALLOWED_EXTS:
-                    logger.info(f"filtered bad extension: {ext} from example {example.get('path', '<no path>') if isinstance(example, dict) else '<invalid example>'}")
-                return ext in ALLOWED_EXTS
-            except Exception as e:
-                logger.error(f"keep_allowed_ext failed: {e}; example={example}")
-                return False
-        
-        dataset = dataset.filter(keep_allowed_ext)
-    
-        def tokenize_and_chunk(examples):
-            try:
-                block_size = model.config.max_position_embeddings
-                texts = examples.get('text', []) if isinstance(examples, dict) else []
-                if texts is None:
-                    texts = []
-                if not isinstance(texts, list):
-                    texts = [texts]
-
-                chunked_input_ids = []
-                for text in texts:
-                    if text is None:
-                        continue
-                    if isinstance(text, list):
-                        logger.warning(f"received unexpected list in text field: {text}")
-                        continue
-                    if not isinstance(text, str):
-                        try:
-                            text = str(text)
-                        except Exception as e:
-                            logger.warning(f"failed to stringify text field: {e}; value={text}")
-                            continue
-                    if len(text) == 0:
-                        logger.info("filtered empty text field")
-                        continue
-
-                    encodings = tokenizer(
-                        text,
-                        return_overflowing_tokens=True,
-                        max_length=block_size,
-                        stride=0,
-                        truncation=True,
-                        add_special_tokens=False,
-                    )
-                    chunk_ids = encodings.get('input_ids', [])
-                    if isinstance(chunk_ids, list):
-                        if len(chunk_ids) == 0:
-                            logger.debug("filtered empty tokenized input_ids chunk")
-                            continue
-                        if all(isinstance(tok, int) for tok in chunk_ids):
-                            chunked_input_ids.append(chunk_ids)
-                        else:
-                            for chunk in chunk_ids:
-                                if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
-                                    chunked_input_ids.append(chunk)
-                                else:
-                                    logger.warning(f"invalid tokenized chunk format: {chunk}")
-                    else:
-                        logger.warning(f"unexpected tokenized format: {type(chunk_ids)}")
-                return {'input_ids': chunked_input_ids}
-            except Exception as e:
-                identifier = None
-                if isinstance(examples, dict):
-                    identifier = examples.get('path') or examples.get('文件名') or examples.get('md5')
-                logger.error(f"tokenize_and_chunk failed for {identifier or '<unknown>'}: {e}")
-                return {'input_ids': []}
-
-        dataset = dataset.map(
-            tokenize_and_chunk,
-            batched=True,
-            batch_size=100,
-            remove_columns=dataset.column_names,
-            #remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
-        )
-        dataset = dataset.filter(
-            lambda x: isinstance(x.get('input_ids', None), list) and len(x['input_ids']) > 0
-        )
-
-        return iter(dataset) # return the pointer
-
-
 if __name__ == "__main__":
 
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
 
-    train_dataset=BlocksDataset()
+    from data import BlocksDataset
+    train_dataset=BlocksDataset(data_dir = "/data1/dataset/jssnu005/sys/MNBVC",
+                                logger=logger,
+                                model=model,
+                                tokenizer=tokenizer)
 
     trainer = Trainer(
                     model=model,
