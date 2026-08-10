@@ -83,7 +83,12 @@ def collate_fn(batch):
             if all(isinstance(tok, int) for tok in seq):
                 valid_input_ids.append(seq)
             elif all(isinstance(chunk, list) and all(isinstance(tok, int) for tok in chunk) for chunk in seq):
-                valid_input_ids.extend(seq)
+                # seq is a list of chunks; filter out any empty chunks (eg. [[]])
+                filtered_chunks = [chunk for chunk in seq if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk)]
+                if len(filtered_chunks) > 0:
+                    valid_input_ids.extend(filtered_chunks)
+                else:
+                    counters['skipped_input_ids_examples'] += 1
             else:
                 counters['skipped_input_ids_examples'] += 1
         else:
@@ -94,6 +99,8 @@ def collate_fn(batch):
         raise ValueError("No valid input_ids found in batch. Check dataset preprocessing for malformed examples.")
 
     max_len = max(len(seq) for seq in valid_input_ids)
+    if max_len == 0:
+        raise ValueError("All input_ids in batch are empty sequences (length 0). Check tokenizer output and filtering.")
     padded_input_ids = []
     for seq in valid_input_ids:
         pad_len = max_len - len(seq)
@@ -178,11 +185,13 @@ if __name__ == "__main__":
                 if isinstance(chunk_ids, list):
                     if len(chunk_ids) == 0:
                         continue
+                    # chunk_ids can be either a flat list of ints (single chunk) or a list of chunks
                     if all(isinstance(tok, int) for tok in chunk_ids):
-                        chunked_input_ids.append(chunk_ids)
+                        if len(chunk_ids) > 0:
+                            chunked_input_ids.append(chunk_ids)
                     else:
                         for chunk in chunk_ids:
-                            if isinstance(chunk, list) and all(isinstance(tok, int) for tok in chunk):
+                            if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
                                 chunked_input_ids.append(chunk)
             return {'input_ids': chunked_input_ids}
         except Exception as e:
