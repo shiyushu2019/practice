@@ -1,5 +1,6 @@
 # export CUDA_VISIBLE_DEVICES=2
 
+import logging
 from transformers import Qwen2Config, Qwen2ForCausalLM
 import torch
 from torch.utils.data import IterableDataset
@@ -14,12 +15,13 @@ from transformers import (
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
-counters = {
-    'bad_ext_examples': 0,
-    'tokenize_error_examples': 0,
-    'skipped_input_ids_examples': 0,
-    'filtered_empty_input_ids': 0,
-}
+logger = logging.getLogger("data_processing")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.FileHandler("data_processing.log", mode="a", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(handler)
+    logger.propagate = False
 
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B", trust_remote_code=True)
 tokenizer.model_max_length = 10000000
@@ -101,30 +103,40 @@ class BlocksDataset(IterableDataset):
         self.pointer=self._get_pointer(data_dir = data_dir,)
 
     def __iter__(self):
-        if len(self.buffer)>0:
+        if len(self.buffer) > 0:
             yield self.buffer.pop()
         else:
-            while not len(self.buffer)>0:
+            while not len(self.buffer) > 0:
                 try:
-                    get = next(self.pointer)['input_ids']
+                    item = next(self.pointer)
+                    get = item.get('input_ids') if isinstance(item, dict) else None
                 except StopIteration:
-                    raise StopIteration
-                if isinstance(get, list) and len(get) > 0:
-                    if all(isinstance(tok, int) for tok in get):   # [1,2,3....]
-                        self.buffer.append(get)
-                    elif all(isinstance(chunk, list) and all(isinstance(tok, int) for tok in chunk) for chunk in get): # [[1,2,3....], [1,2,3,...]]
-                        # seq is a list of chunks; filter out any empty chunks (eg. [[]])
-                        filtered_chunks = [chunk for chunk in get if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk)]
-                        if len(filtered_chunks) > 0:
-                            self.buffer.extend(filtered_chunks)
-                        else:
-                            counters['skipped_input_ids_examples'] += 1
-                    else:
-                        counters['skipped_input_ids_examples'] += 1
+                    raise
+                except Exception as e:
+                    logger.error(f"failed reading example from pointer: {e}")
+                    continue
+
+                sequences = self._normalize_input_ids(get)
+                if len(sequences) > 0:
+                    self.buffer.extend(sequences)
                 else:
-                    print(f"[error] collate_fn skipped invalid input_ids: {get}")
-                    counters['skipped_input_ids_examples'] += 1
+                    logger.warning(f"skipped invalid input_ids structure: {type(get)} {get}")
             yield self.buffer.pop()
+
+    def _normalize_input_ids(self, input_ids):
+        if not isinstance(input_ids, list):
+            return []
+        if len(input_ids) == 0:
+            return []
+        if all(isinstance(tok, int) for tok in input_ids):
+            return [input_ids]
+        sequences = []
+        for chunk in input_ids:
+            if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
+                sequences.append(chunk)
+            else:
+                logger.warning(f"invalid chunk in input_ids list: {chunk}")
+        return sequences
 
     def _get_pointer(self,
                     data_dir = "/data1/dataset/jssnu005/sys/MNBVC",
@@ -163,11 +175,10 @@ class BlocksDataset(IterableDataset):
                 if not ext.startswith('.') and ext != '':
                     ext = '.' + ext
                 if ext not in ALLOWED_EXTS:
-                    counters['bad_ext_examples'] += 1
+                    logger.info(f"filtered bad extension: {ext} from example {example.get('path', '<no path>') if isinstance(example, dict) else '<invalid example>'}")
                 return ext in ALLOWED_EXTS
             except Exception as e:
-                counters['bad_ext_examples'] += 1
-                print(f"[error] keep_allowed_ext failed: {e}; example={example}")
+                logger.error(f"keep_allowed_ext failed: {e}; example={example}")
                 return False
         
         dataset = dataset.filter(keep_allowed_ext)
@@ -175,22 +186,29 @@ class BlocksDataset(IterableDataset):
         def tokenize_and_chunk(examples):
             try:
                 block_size = model.config.max_position_embeddings
-                texts = examples.get('text', [])
+                texts = examples.get('text', []) if isinstance(examples, dict) else []
                 if texts is None:
                     texts = []
                 if not isinstance(texts, list):
                     texts = [texts]
-    
+
                 chunked_input_ids = []
                 for text in texts:
                     if text is None:
                         continue
-                    if not isinstance(text, str):
-                        text = str(text)
-                    if len(text) == 0:
-                        counters['filtered_empty_input_ids'] += 1
+                    if isinstance(text, list):
+                        logger.warning(f"received unexpected list in text field: {text}")
                         continue
-    
+                    if not isinstance(text, str):
+                        try:
+                            text = str(text)
+                        except Exception as e:
+                            logger.warning(f"failed to stringify text field: {e}; value={text}")
+                            continue
+                    if len(text) == 0:
+                        logger.info("filtered empty text field")
+                        continue
+
                     encodings = tokenizer(
                         text,
                         return_overflowing_tokens=True,
@@ -202,22 +220,26 @@ class BlocksDataset(IterableDataset):
                     chunk_ids = encodings.get('input_ids', [])
                     if isinstance(chunk_ids, list):
                         if len(chunk_ids) == 0:
+                            logger.debug("filtered empty tokenized input_ids chunk")
                             continue
-                        # chunk_ids can be either a flat list of ints (single chunk) or a list of chunks
                         if all(isinstance(tok, int) for tok in chunk_ids):
-                            if len(chunk_ids) > 0:
-                                chunked_input_ids.append(chunk_ids)
+                            chunked_input_ids.append(chunk_ids)
                         else:
                             for chunk in chunk_ids:
                                 if isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
                                     chunked_input_ids.append(chunk)
+                                else:
+                                    logger.warning(f"invalid tokenized chunk format: {chunk}")
+                    else:
+                        logger.warning(f"unexpected tokenized format: {type(chunk_ids)}")
                 return {'input_ids': chunked_input_ids}
             except Exception as e:
-                counters['tokenize_error_examples'] += 1
-                identifier = examples.get('path') or examples.get('文件名') or examples.get('md5') or '<unknown>'
-                print(f"[error] tokenize_and_chunk failed for {identifier}: {e}")
+                identifier = None
+                if isinstance(examples, dict):
+                    identifier = examples.get('path') or examples.get('文件名') or examples.get('md5')
+                logger.error(f"tokenize_and_chunk failed for {identifier or '<unknown>'}: {e}")
                 return {'input_ids': []}
-    
+
         dataset = dataset.map(
             tokenize_and_chunk,
             batched=True,
@@ -248,8 +270,5 @@ if __name__ == "__main__":
                 )
     trainer.train()
 
-    print("[stats] bad_ext_examples=", counters['bad_ext_examples'])
-    print("[stats] tokenize_error_examples=", counters['tokenize_error_examples'])
-    print("[stats] filtered_empty_input_ids=", counters['filtered_empty_input_ids'])
-    print("[stats] skipped_input_ids_examples=", counters['skipped_input_ids_examples'])
+    logger.info("training finished")
     #trainer.train(resume_from_checkpoint="./checkpoints/checkpoint-560/")
