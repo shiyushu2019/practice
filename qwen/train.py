@@ -13,6 +13,13 @@ from transformers import (
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
+counters = {
+    'bad_ext_examples': 0,
+    'tokenize_error_examples': 0,
+    'skipped_input_ids_examples': 0,
+    'filtered_empty_input_ids': 0,
+}
+
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B",trust_remote_code=True)
 tokenizer.model_max_length = 10000000
 if tokenizer.eos_token_id is not None:
@@ -81,6 +88,7 @@ def collate_fn(batch):
             valid_input_ids.append(seq)
         else:
             print(f"[error] collate_fn skipped invalid input_ids: {seq}")
+            counters['skipped_input_ids_examples'] += 1
 
     if len(valid_input_ids) == 0:
         raise ValueError("No valid input_ids found in batch. Check dataset preprocessing for malformed examples.")
@@ -127,9 +135,12 @@ if __name__ == "__main__":
             if not isinstance(ext, str):
                 ext = str(ext) if ext is not None else ''
             ext = ext.strip().lower()
+            if ext not in ALLOWED_EXTS:
+                counters['bad_ext_examples'] += 1
             return ext in ALLOWED_EXTS
         except Exception as e:
-            print(f"[error] keep_allowed_ext failed: {e}; example={example}")
+            counters['bad_ext_examples'] += 1
+            #print(f"[error] keep_allowed_ext failed: {e}; example={example}")
             return False
     
     dataset = dataset.filter(keep_allowed_ext)
@@ -144,6 +155,7 @@ if __name__ == "__main__":
             elif not isinstance(text, str):
                 text = str(text)
             if len(text) == 0:
+                counters['filtered_empty_input_ids'] += 1
                 return {'input_ids': []}
 
             encodings = tokenizer(
@@ -156,6 +168,7 @@ if __name__ == "__main__":
             )
             return {'input_ids': encodings.get('input_ids', [])}
         except Exception as e:
+            counters['tokenize_error_examples'] += 1
             identifier = examples.get('path') or examples.get('文件名') or examples.get('md5') or '<unknown>'
             print(f"[error] tokenize_and_chunk failed for {identifier}: {e}")
             return {'input_ids': []}
@@ -182,4 +195,9 @@ if __name__ == "__main__":
                     data_collator=collate_fn,
                 )
     trainer.train()
+
+    print("[stats] bad_ext_examples=", counters['bad_ext_examples'])
+    print("[stats] tokenize_error_examples=", counters['tokenize_error_examples'])
+    print("[stats] filtered_empty_input_ids=", counters['filtered_empty_input_ids'])
+    print("[stats] skipped_input_ids_examples=", counters['skipped_input_ids_examples'])
     #trainer.train(resume_from_checkpoint="./checkpoints/checkpoint-560/")
