@@ -1,4 +1,4 @@
-from transformers import Qwen2Config, Qwen2ForCausalLM
+from transformers import Qwen2Config, Qwen2ForCausalLM, DataCollatorForLanguageModeling
 import torch
 import random
 import glob
@@ -74,9 +74,16 @@ training_args = TrainingArguments(
                 )
 
 def collate_fn(batch):
-    input_ids = torch.stack([item['input_ids'] for item in batch])
+    max_len = max(len(item['input_ids']) for item in batch)
+    padded_input_ids = []
+    for item in batch:
+        seq = item['input_ids']
+        pad_len = max_len - len(seq)
+        padded_seq = seq + [tokenizer.pad_token_id] * pad_len
+        padded_input_ids.append(padded_seq)
+    input_ids = torch.tensor(padded_input_ids, dtype=torch.long)
     labels = input_ids.clone()
-    labels[labels == pad_token_id] = -100
+    labels[labels == tokenizer.pad_token_id] = -100
     return {'input_ids': input_ids, 'labels': labels}
 
 if __name__ == "__main__":
@@ -102,6 +109,7 @@ if __name__ == "__main__":
         '.fish', '.sql', '.db', '.sqlite', '.lisp', '.cl', '.el',
         '.scala', '.kt', '.kts', '.dart', '.jl', '.r', '.rmd',
     }
+
     def keep_allowed_ext(example):
         """返回 True 表示保留，False 表示过滤掉"""
         ext = example.get('ext', '')
@@ -110,35 +118,27 @@ if __name__ == "__main__":
     
     dataset = dataset.filter(keep_allowed_ext)
 
-    def tokenize_and_chunk(example):
+    def tokenize_and_chunk(examples):
         block_size = model.config.max_position_embeddings
         stride = block_size
-        text = example.get('text', '')
-        if not text:
-            return {"input_ids": []}  # 空文本返回空列表，后续过滤掉
-        tokens = tokenizer.encode(text, add_special_tokens=False)
-        blocks = []
-        if len(tokens) <= block_size:
-            # 短文本：补齐到 block_size
-            block = tokens + [pad_token_id] * (block_size - len(tokens))
-            blocks.append(block)
-        else:
-            # 长文本：滑动窗口切块
-            for start in range(0, len(tokens) - block_size + 1, stride):
-                blocks.append(tokens[start:start + block_size])
-            # 最后不足步长时，取最后 block_size 个 token（确保覆盖尾部）
-            if (len(tokens) - block_size) % stride != 0:
-                blocks.append(tokens[-block_size:])
-        return {"input_ids": blocks}  # 返回列表，HF 会自动展开为多个样本
+        texts = examples['text']
+        encodings = tokenizer(
+            texts,
+            return_overflowing_tokens=True,
+            max_length=block_size,
+            stride=stride,
+            truncation=True,
+            add_special_tokens=False,
+        )
+        return {'input_ids': encodings['input_ids']}
 
     dataset = dataset.map(
         tokenize_and_chunk,
         batched=False,
-        # remove_columns=dataset.column_names,
-        remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
+        remove_columns=dataset.column_names,
+        #remove_columns=['来源', '仓库名', 'path', '文件名', 'ext', 'size', '原始编码', 'md5', 'text', '时间'], # keys are known
     )
     dataset = dataset.filter(lambda x: len(x['input_ids']) > 0)
-    dataset = dataset.explode("input_ids")
     
     #eval_dataset = dataset.take(10000)
     #train_dataset = dataset.skip(10000)
