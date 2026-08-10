@@ -3,7 +3,6 @@
 import logging
 from transformers import Qwen2Config, Qwen2ForCausalLM
 import torch
-from datasets import load_dataset
 from transformers import (
     Trainer,
     TrainingArguments,
@@ -30,11 +29,11 @@ pad_token_id = tokenizer.pad_token_id
 model_config = Qwen2Config(
                     #vocab_size=tokenizer.vocab_size,
                     vocab_size=len(tokenizer),
-                    hidden_size=2560,   
-                    intermediate_size=12288,
-                    num_hidden_layers=24,           
-                    num_attention_heads=20,       
-                    num_key_value_heads=10,          
+                    hidden_size=2048,   
+                    intermediate_size=11264,
+                    num_hidden_layers=28,           
+                    num_attention_heads=16,       
+                    num_key_value_heads=8,          
                     max_position_embeddings=4096, 
                     #rms_norm_eps=1e-6,
                     attention_dropout=0.0,
@@ -50,8 +49,8 @@ training_args = TrainingArguments(
                     output_dir='./checkpoints',
                     logging_dir='./logs',
                     #num_train_epochs=30,
-                    max_steps=100000, # steps to train
-                    warmup_steps=3000,
+                    max_steps=520000, # steps to train
+                    warmup_steps=5200,
 
                     learning_rate=1e-4,
                     weight_decay=0.01,
@@ -68,9 +67,9 @@ training_args = TrainingArguments(
                     #greater_is_better=False, 
                     #load_best_model_at_end=True, 
                     save_total_limit=3,
-                    logging_steps=5,
+                    logging_steps=5,   # debug
                     save_strategy="steps",
-                    save_steps=5000,
+                    save_steps=5000,    # debug
                     
                     fp16=True,
                     optim="adamw_8bit",
@@ -117,7 +116,7 @@ if __name__ == "__main__":
                     #eval_dataset=eval_dataset,
                     data_collator=collate_fn,
                 )
+    # trainer.train(resume_from_checkpoint="./checkpoints/checkpoint-200/")
     trainer.train()
 
     logger.info("training finished")
-    #trainer.train(resume_from_checkpoint="./checkpoints/checkpoint-560/")
