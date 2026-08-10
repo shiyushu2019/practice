@@ -107,7 +107,8 @@ class BlocksDataset(IterableDataset):
                 if not ext.startswith('.') and ext != '':
                     ext = '.' + ext
                 if ext not in ALLOWED_EXTS:
-                    self.logger.info(f"filtered bad extension: {ext} from example {example.get('path', '<no path>')}")
+                    pass
+                    # self.logger.info(f"filtered bad extension: {ext} from example {example.get('path', '<no path>')}")
                 return ext in ALLOWED_EXTS
             except Exception as e:
                 self.logger.error(f"keep_allowed_ext failed: {e}; example={example}")
@@ -149,9 +150,6 @@ class BlocksDataset(IterableDataset):
                         truncation=True,
                         add_special_tokens=False,
                     )
-                    if not isinstance(encodings, dict):
-                        self.logger.warning(f"unexpected tokenizer output type: {type(encodings)}")
-                        continue
                     chunk_ids = encodings.get('input_ids', [])
                     if isinstance(chunk_ids, tuple):
                         chunk_ids = list(chunk_ids)

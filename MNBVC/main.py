@@ -44,13 +44,11 @@ dataset = dataset.filter(keep_allowed_ext)
 
 if __name__=="__main__":
 
-    print(next(iter(dataset)).keys())
-    exit(0)
+    #print(next(iter(dataset)).keys())
+    #exit(0)
     # 测试：迭代前几条，打印 text 预览
     for i, sample in enumerate(dataset):
         print(f"样本 {i}:")
-        #print(sample.get('text', '')[:300])  # 只打印前300字符，避免刷屏
+        print(sample.get('text', '')[:300])  # 只打印前300字符，避免刷屏
         #print(sample.get('ext', ''))
-        print(type(sample.get('text', '')))
-        if i >= 100:   # 只取前5条演示
-            break
+        #print(type(sample.get('text', '')))

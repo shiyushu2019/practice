@@ -5,3 +5,4 @@ data/
 nohup.out
 rubbish/
 add/
+*.log

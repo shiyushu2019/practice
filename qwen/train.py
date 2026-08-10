@@ -3,9 +3,6 @@
 import logging
 from transformers import Qwen2Config, Qwen2ForCausalLM
 import torch
-from torch.utils.data import IterableDataset
-import random
-import glob
 from datasets import load_dataset
 from transformers import (
     Trainer,
@@ -18,7 +15,7 @@ print(f"Using device: {DEVICE}")
 logger = logging.getLogger("data_processing")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.FileHandler("data_processing.log", mode="a", encoding="utf-8")
+    handler = logging.FileHandler("data.log", mode="a", encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
     logger.propagate = False
@@ -34,8 +31,8 @@ model_config = Qwen2Config(
                     #vocab_size=tokenizer.vocab_size,
                     vocab_size=len(tokenizer),
                     hidden_size=2560,   
-                    intermediate_size=14080,
-                    num_hidden_layers=30,           
+                    intermediate_size=12288,
+                    num_hidden_layers=24,           
                     num_attention_heads=20,       
                     num_key_value_heads=10,          
                     max_position_embeddings=4096, 
