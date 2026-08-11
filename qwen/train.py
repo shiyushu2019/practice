@@ -1,5 +1,6 @@
 # export CUDA_VISIBLE_DEVICES=2
 # CUDA_VISIBLE_DEVICES=3,5 torchrun --nproc_per_node=2 train.py
+# CUDA_VISIBLE_DEVICES=5 torchrun --nproc_per_node=1 train.py
 
 import logging
 from transformers import Qwen2Config, Qwen2ForCausalLM
@@ -30,7 +31,7 @@ model_config = Qwen2Config(
                     vocab_size=len(tokenizer),
                     hidden_size=2048,   
                     intermediate_size=9728,
-                    num_hidden_layers=28,           
+                    num_hidden_layers=27,           
                     num_attention_heads=16,       
                     num_key_value_heads=8,          
                     max_position_embeddings=4096, 
@@ -44,7 +45,7 @@ model_config = Qwen2Config(
                 )
 model_config._attn_implementation = "sdpa"  
 
-NUM_CUDA=2
+NUM_CUDA=1
 EXPECT_BATCH=256
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
