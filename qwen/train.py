@@ -1,4 +1,5 @@
 # export CUDA_VISIBLE_DEVICES=2
+# CUDA_VISIBLE_DEVICES=3,5 torchrun --nproc_per_node=2 train.py
 
 import logging
 from transformers import Qwen2Config, Qwen2ForCausalLM
@@ -8,8 +9,6 @@ from transformers import (
     TrainingArguments,
     AutoTokenizer
 )
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {DEVICE}")
 
 logger = logging.getLogger("data_processing")
 logger.setLevel(logging.INFO)
@@ -30,7 +29,7 @@ model_config = Qwen2Config(
                     #vocab_size=tokenizer.vocab_size,
                     vocab_size=len(tokenizer),
                     hidden_size=2048,   
-                    intermediate_size=11264,
+                    intermediate_size=9728,
                     num_hidden_layers=28,           
                     num_attention_heads=16,       
                     num_key_value_heads=8,          
@@ -43,13 +42,16 @@ model_config = Qwen2Config(
                     eos_token_id=tokenizer.eos_token_id,
                     use_cache=False,  # 训练时关闭缓存
                 )
+model_config._attn_implementation = "sdpa"  
 
+NUM_CUDA=2
+EXPECT_BATCH=256
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
                     logging_dir='./logs',
                     #num_train_epochs=30,
-                    max_steps=520000, # steps to train
-                    warmup_steps=5200,
+                    max_steps=624055//EXPECT_BATCH, # steps to train -> 624055 is blocks num of this config
+                    warmup_steps=624055//EXPECT_BATCH//50,
 
                     learning_rate=1e-4,
                     weight_decay=0.01,
@@ -57,7 +59,8 @@ training_args = TrainingArguments(
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=1,
                     #per_device_eval_batch_size=6,
-                    gradient_accumulation_steps=8,
+                    gradient_accumulation_steps=EXPECT_BATCH//NUM_CUDA,
+                    #gradient_accumulation_steps=1,
                     gradient_checkpointing=True,
 
                     #eval_strategy="steps",
@@ -66,9 +69,9 @@ training_args = TrainingArguments(
                     #greater_is_better=False, 
                     #load_best_model_at_end=True, 
                     save_total_limit=3,
-                    logging_steps=5,   # debug
+                    logging_steps=1,
                     save_strategy="steps",
-                    save_steps=5000,    # debug
+                    save_steps=624055//EXPECT_BATCH//100,
                     
                     fp16=True,
                     optim="adamw_8bit",
@@ -99,9 +102,13 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
 
-    model = Qwen2ForCausalLM(model_config).to(DEVICE)
+    if torch.cuda.is_available():
+        torch.backends.cuda.enable_flash_sdp(True)
+        torch.backends.cuda.enable_mem_efficient_sdp(True)
+    model = Qwen2ForCausalLM(model_config)
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
+    print(f"Attention implementation: {model.config._attn_implementation}")
 
     from data import BlocksDataset
     train_dataset=BlocksDataset(data_dir = "/data1/dataset/jssnu005/sys/sis-novel/train_data",
@@ -118,5 +125,4 @@ if __name__ == "__main__":
                 )
     # trainer.train(resume_from_checkpoint="./checkpoints/checkpoint-200/")
     trainer.train()
-
-    logger.info("training finished")
+    print("training finished")
