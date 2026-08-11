@@ -43,7 +43,6 @@ model_config = Qwen2Config(
                     eos_token_id=tokenizer.eos_token_id,
                     use_cache=False,  # 训练时关闭缓存
                 )
-model = Qwen2ForCausalLM(model_config).to(DEVICE)    
 
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
@@ -100,13 +99,14 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
 
+    model = Qwen2ForCausalLM(model_config).to(DEVICE)
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
 
     from data import BlocksDataset
-    train_dataset=BlocksDataset(data_dir = "/data1/dataset/jssnu005/sys/MNBVC",
+    train_dataset=BlocksDataset(data_dir = "/data1/dataset/jssnu005/sys/sis-novel/train_data",
                                 logger=logger,
-                                model=model,
+                                model_max_len=model.config.max_position_embeddings,
                                 tokenizer=tokenizer)
 
     trainer = Trainer(
