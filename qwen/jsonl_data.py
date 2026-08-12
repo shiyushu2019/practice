@@ -63,6 +63,9 @@ class BlocksDataset(IterableDataset):
                                 self.logger.error(f"[__iter__] encoding failed: {e}; text={text}")
                                 continue # 保证数据流不崩溃
                             chunk_ids = encodings['input_ids']
+                            if not chunk_ids:
+                                self.logger.error(f"[__iter__] tokenizer returned empty input_ids for text={text[:200]!r}")
+                                continue # 保证数据流不崩溃
                             if len(chunk_ids)>0 and all(isinstance(tok, int) for tok in chunk_ids): # 只返回一个token：[1,2,3,....]
                                 chunk=chunk_ids
                                 if isinstance(chunk, list) and all(tok==pad_id for tok in chunk):
@@ -70,6 +73,7 @@ class BlocksDataset(IterableDataset):
                                     continue # 保证数据流不崩溃
                                 yield chunk
                             else:  # 返回多个token：[[1,2,3,....], ....]
+                                emitted_any = False
                                 for chunk in chunk_ids:
                                     try:
                                         if isinstance(chunk, list) and all(tok==pad_id for tok in chunk):
@@ -77,12 +81,15 @@ class BlocksDataset(IterableDataset):
                                             continue # 保证数据流不崩溃
                                         elif isinstance(chunk, list) and len(chunk) > 0 and all(isinstance(tok, int) for tok in chunk):
                                             yield chunk
+                                            emitted_any = True
                                         else:
                                             self.logger.error(f"[__iter__] invalid tokenized chunk format: {chunk}")
                                             continue # 保证数据流不崩溃
                                     except Exception as e:
                                         self.logger.error(f"[__iter__] one chunk failed: {e}; chunk={chunk}")
                                         continue # 保证数据流不崩溃
+                                if not emitted_any:
+                                    self.logger.error(f"[__iter__] no valid chunk yielded from nested tokenized result; text={text[:200]!r}; chunks={chunk_ids!r}")
                         except Exception as e:
                             self.logger.error(f"[__iter__] one json line failed: {e}; line={line}")
                             continue # 保证数据流不崩溃
