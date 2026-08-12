@@ -111,7 +111,7 @@ if __name__ == "__main__":
     print(f"参数量: {total_b:.4f} B")
     print(f"Attention implementation: {model.config._attn_implementation}")
 
-    from data import BlocksDataset
+    from txt_data import BlocksDataset
     train_dataset=BlocksDataset(data_dir = "/data1/dataset/jssnu005/sys/sis-novel/train_data",
                                 logger=logger,
                                 model_max_len=model.config.max_position_embeddings,
