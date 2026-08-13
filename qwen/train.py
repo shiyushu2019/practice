@@ -1,6 +1,7 @@
 # export CUDA_VISIBLE_DEVICES=2
-# CUDA_VISIBLE_DEVICES=3,5 torchrun --nproc_per_node=2 train.py
+# CUDA_VISIBLE_DEVICES=0,5 torchrun --nproc_per_node=2 --master_port=29501 train.py
 # CUDA_VISIBLE_DEVICES=5 torchrun --nproc_per_node=1 train.py
+# CUDA_VISIBLE_DEVICES=0,1,5 torchrun --nproc_per_node=3 --master_port=29599 train.py
 
 import logging
 from transformers import Qwen2Config, Qwen2ForCausalLM
@@ -54,8 +55,8 @@ training_args = TrainingArguments(
                     learning_rate=3e-4,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=4,
-                    gradient_accumulation_steps=64,
+                    per_device_train_batch_size=2,
+                    gradient_accumulation_steps=42,
                     #gradient_accumulation_steps=1,
                     gradient_checkpointing=True,
 
