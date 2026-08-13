@@ -30,11 +30,11 @@ model_config = Qwen2Config(
                     #vocab_size=tokenizer.vocab_size,
                     vocab_size=len(tokenizer),
                     hidden_size=2048,   
-                    intermediate_size=9728,
-                    num_hidden_layers=27,           
+                    intermediate_size=5504,
+                    num_hidden_layers=20,           
                     num_attention_heads=16,       
                     num_key_value_heads=8,          
-                    max_position_embeddings=4096, 
+                    max_position_embeddings=2048, 
                     #rms_norm_eps=1e-6,
                     attention_dropout=0.0,
                     rope_parameters={"rope_theta": 100000.0, "rope_type": "default"},
@@ -45,34 +45,24 @@ model_config = Qwen2Config(
                 )
 model_config._attn_implementation = "sdpa"  
 
-NUM_CUDA=1
-EXPECT_BATCH=256
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
-                    logging_dir='./logs',
                     #num_train_epochs=30,
-                    max_steps=624055//EXPECT_BATCH, # steps to train -> 624055 is blocks num of this config
-                    warmup_steps=624055//EXPECT_BATCH//50,
+                    max_steps=int(2e5),
+                    warmup_steps=int(6e3),
 
-                    learning_rate=1e-4,
+                    learning_rate=3e-4,
                     weight_decay=0.01,
-                    #warmup_ratio=0.03,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=1,
-                    #per_device_eval_batch_size=6,
-                    gradient_accumulation_steps=EXPECT_BATCH//NUM_CUDA,
+                    per_device_train_batch_size=4,
+                    gradient_accumulation_steps=64,
                     #gradient_accumulation_steps=1,
                     gradient_checkpointing=True,
 
-                    #eval_strategy="steps",
-                    #eval_steps=5000,
-                    #metric_for_best_model="eval_loss",
-                    #greater_is_better=False, 
-                    #load_best_model_at_end=True, 
-                    save_total_limit=3,
-                    logging_steps=1,
+                    save_total_limit=2,
+                    logging_steps=10,
                     save_strategy="steps",
-                    save_steps=624055//EXPECT_BATCH//100,
+                    save_steps=500,
                     
                     fp16=True,
                     optim="adamw_8bit",
