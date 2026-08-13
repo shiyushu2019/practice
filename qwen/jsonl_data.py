@@ -100,19 +100,15 @@ class BlocksDataset(IterableDataset):
 if __name__ == "__main__":
     from train import logger,  tokenizer
 
-    dataset = BlocksDataset(logger=logger, model_max_len=4096, tokenizer=tokenizer)
+    dataset = BlocksDataset(logger=logger, model_max_len=768, tokenizer=tokenizer)
     it = iter(dataset)
-
-    
+    """    
     cnt=0
     Min_len=4096
-    avg_len=0
     for x in dataset:
         cnt+=1
         Min_len=min(Min_len,len(x))
-        avg_len+=len(x)
-    avg_len/=cnt
-    print(cnt,Min_len,avg_len)
+    print(cnt,Min_len)
     """
     for i in range(1000):
         try:
@@ -126,4 +122,3 @@ if __name__ == "__main__":
         print(f"\n========== Block {i} (tokens: {len(block)}) ==========")
         print(text)
         input("按 Enter 键继续下一个块...")
-    """

@@ -35,7 +35,7 @@ model_config = Qwen2Config(
                     num_hidden_layers=20,           
                     num_attention_heads=16,       
                     num_key_value_heads=8,          
-                    max_position_embeddings=2048, 
+                    max_position_embeddings=768, 
                     #rms_norm_eps=1e-6,
                     attention_dropout=0.0,
                     rope_parameters={"rope_theta": 100000.0, "rope_type": "default"},
@@ -55,8 +55,8 @@ training_args = TrainingArguments(
                     learning_rate=3e-4,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=2,
-                    gradient_accumulation_steps=42,
+                    per_device_train_batch_size=6,
+                    gradient_accumulation_steps=15,
                     #gradient_accumulation_steps=1,
                     gradient_checkpointing=True,
 
@@ -102,8 +102,8 @@ if __name__ == "__main__":
     print(f"参数量: {total_b:.4f} B")
     #print(f"Attention implementation: {model.config._attn_implementation}")
 
-    from txt_data import BlocksDataset
-    train_dataset=BlocksDataset(data_dir = "/data1/dataset/jssnu005/sys/sis-novel/train_data",
+    from jsonl_data import BlocksDataset
+    train_dataset=BlocksDataset(data_dir = "/data1/dataset/jssnu005/sys/skypile/data",
                                 logger=logger,
                                 model_max_len=model.config.max_position_embeddings,
                                 tokenizer=tokenizer)
