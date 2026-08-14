@@ -1,17 +1,14 @@
-# python inf.py --checkpoint "./checkpoints/checkpoint-80/model.safetensors"
+# python inf.py --checkpoint "./checkpoints/checkpoint-3500/model.safetensors"
 
-import torch
-import torch.nn.functional as F
-from transformers import AutoTokenizer, Qwen2Config, Qwen2ForCausalLM
+import threading
+from transformers import AutoTokenizer, Qwen2ForCausalLM, TextIteratorStreamer
 import argparse
 import os
 from safetensors.torch import load_file
 from train import model_config
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"Using device: {DEVICE}")
 
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B", trust_remote_code=True)
-model = Qwen2ForCausalLM(model_config).to(DEVICE)
+model = Qwen2ForCausalLM(model_config)
 model.config.use_cache = True
 
 def generate(
@@ -24,58 +21,61 @@ def generate(
     device="cuda"
 ):
     """
-    自回归生成文本（无 KV cache，简单实现）
+    流式生成文本，使用模型自带 KV cache，避免每步重算整段历史。
     """
     model.eval()
-    # 编码 prompt
-    input_ids = tokenizer.encode(prompt, add_special_tokens=False)
-    input_ids = torch.tensor(input_ids, dtype=torch.long, device=device).unsqueeze(0)  # (1, L)
-    
-    generated = input_ids
-    with torch.no_grad():
-        for _ in range(max_new_tokens):
-            L = generated.size(1)
-            # 前向
-            logits = model(generated).logits   # (1, L, vocab_size)
-            #next_token_logits = logits[:, -1, :] / temperature   # 取最后一个位置的 logits
-            if temperature > 0:
-                next_token_logits = logits[:, -1, :] / temperature
-            else:
-                next_token_logits = logits[:, -1, :]   # 不做缩放，直接 argmax
-            
-            # 可选 top-k 采样
-            if top_k is not None:
-                top_k_values, top_k_indices = torch.topk(next_token_logits, top_k, dim=-1)
-                # 将非 top-k 位置的 logits 设为 -inf
-                mask = torch.ones_like(next_token_logits, dtype=torch.bool)
-                mask.scatter_(1, top_k_indices, False)
-                next_token_logits = next_token_logits.masked_fill(mask, float('-inf'))
-            
-            # 采样或贪心
-            if temperature > 0:
-                probs = F.softmax(next_token_logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1)  # (1, 1)
-            else:
-                next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)  # (1, 1)
-            
-            generated = torch.cat([generated, next_token], dim=1)
-            if generated.size(1) >=model.config.max_position_embeddings:
-                break 
-            # 可选：遇到 EOS 终止（Qwen tokenizer 有 eos_token）
-            if tokenizer.eos_token_id is not None and next_token.item() == tokenizer.eos_token_id:
-                break
-    
-    # 解码
-    output_text = tokenizer.decode(generated[0].tolist(), skip_special_tokens=True)
-    return output_text
+    input_ids = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).input_ids.to(device)
+    max_ctx = getattr(model.config, "max_position_embeddings", None)
+    if max_ctx is not None and input_ids.shape[-1] >= max_ctx:
+        raise ValueError(
+            f"Prompt length ({input_ids.shape[-1]}) exceeds model max context ({max_ctx}). "
+            "Please shorten the prompt or reduce max_new_tokens."
+        )
+
+    if max_ctx is not None:
+        safe_new_tokens = min(max_new_tokens, max_ctx - input_ids.shape[-1])
+        if safe_new_tokens <= 0:
+            raise ValueError(
+                f"No remaining context budget for generation: prompt length={input_ids.shape[-1]}, "
+                f"max_context={max_ctx}."
+            )
+    else:
+        safe_new_tokens = max_new_tokens
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    generation_kwargs = dict(
+        input_ids=input_ids,
+        streamer=streamer,
+        max_new_tokens=safe_new_tokens,
+        do_sample=temperature > 0,
+        temperature=temperature if temperature > 0 else 1.0,
+        top_k=top_k if (top_k is not None and temperature > 0) else None,
+        pad_token_id=tokenizer.eos_token_id,
+        repetition_penalty=1.1,
+    )
+
+    thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
+    thread.start()
+
+    try:
+        for text in streamer:
+            if text:
+                print(text, end="", flush=True)
+    finally:
+        thread.join()
+
+    return ""
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str, required=True, help="模型 checkpoint 路径（.pt 或 .bin）")
     parser.add_argument("--prompt", type=str, default="我，", help="输入提示")
-    parser.add_argument("--max_new_tokens", type=int, default=200, help="最大生成 token 数")
-    parser.add_argument("--temperature", type=float, default=0.8, help="温度（0 为贪心）")
-    parser.add_argument("--top_k", type=int, default=50, help="Top-k 采样（None 则关闭）")
+    parser.add_argument("--max_new_tokens", type=int, default=768, help="最大生成 token 数")
+    parser.add_argument("--temperature", type=float, default=0.5, help="温度（0 为贪心）")
+    parser.add_argument("--top_k", type=int, default=30, help="Top-k 采样（None 则关闭）")
     parser.add_argument("--device", type=str, default="cuda", help="设备")
     args = parser.parse_args()
 
@@ -87,15 +87,17 @@ if __name__ == "__main__":
         print("Checkpoint loaded successfully.")
     else:
         raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
+    model=model.to(args.device)
 
     # 生成
-    output = generate(
+    print(args.prompt, end="", flush=True)
+    generate(
         model=model,
         tokenizer=tokenizer,
         prompt=args.prompt,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         top_k=args.top_k,
-        device=DEVICE
+        device=args.device
     )
-    print(output)
+    print()
