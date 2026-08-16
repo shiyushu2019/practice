@@ -45,14 +45,14 @@ model_config._attn_implementation = "sdpa"
 
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
-                    max_steps=int(2e5),
-                    warmup_steps=int(6e3),
+                    warmup_ratio=0.08,
+                    num_train_epochs=1,
 
-                    learning_rate=3e-4,
+                    learning_rate=2e-5,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=6,
-                    gradient_accumulation_steps=15,
+                    per_device_train_batch_size=8, # 8张显卡
+                    gradient_accumulation_steps=1,
                     gradient_checkpointing=True,
 
                     save_total_limit=2,
@@ -84,9 +84,8 @@ if __name__ == "__main__":
     #    torch.backends.cuda.enable_flash_sdp(True)
     #    torch.backends.cuda.enable_mem_efficient_sdp(True)
     model = Qwen2ForCausalLM(model_config)
-    missing, unexpected=model.load_state_dict(load_file('../pretrain/checkpoints/checkpoint-6000/model.safetensors'))
+    missing, unexpected=model.load_state_dict(load_file('../pretrain/checkpoints/checkpoint-6000/model.safetensors'),strict=False)
     print("Missing keys:", missing)
-    print("Unexpected keys:", unexpected)
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
     print(f"Attention implementation: {model.config._attn_implementation}")

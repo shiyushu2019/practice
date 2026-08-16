@@ -1,5 +1,6 @@
 from datasets import load_dataset
 from torch.utils.data import Dataset
+from tqdm import tqdm
 
 class QADataset(Dataset):
     def __init__(
@@ -11,7 +12,8 @@ class QADataset(Dataset):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.dataset = load_dataset("parquet", data_files=f"{path}/*.parquet", split="train")
-        self.dataset = self._filter_valid_samples()
+        # self.dataset = self._filter_valid_samples()
+        # As for this dataset, I have filtered it before, and it's all valid.
 
     def _clean_text(self, value):
         if value is None:
@@ -22,12 +24,16 @@ class QADataset(Dataset):
 
     def _filter_valid_samples(self):
         valid_samples = []
-        for sample in self.dataset:
+        for sample in tqdm(self.dataset):
             prompt = sample.get("prompt")
             response = sample.get("response")
             try:
                 self._encode_chat(prompt, response)
             except ValueError:
+                print(f"preview: there is an invalid sample in dataset, skip")
+                continue
+            except Exception as e:
+                print(f"preview: there is an unknown invalid sample in dataset, skip. Deatil:\n {e}")
                 continue
             valid_samples.append(sample)
         return valid_samples
@@ -103,9 +109,6 @@ class QADataset(Dataset):
         prompt = sample.get("prompt")
         response = sample.get("response")
 
-        prompt = self._clean_text(prompt)
-        response = self._clean_text(response)
-
         input_ids, labels, attention_mask = self._encode_chat(prompt, response)
 
         return {
@@ -126,7 +129,9 @@ if __name__ == "__main__":
     ds = QADataset(tokenizer=tokenizer)
     print(len(ds))
 
-    item = ds[0]
-    print(item["input_ids"][:20])
-    print(item["labels"][:20])
+    for x in ds:
+        x=x["input_ids"]
+        print(tokenizer.decode(x,skip_special_tokens=True))
+        input("按回车键继续...")
+
 
