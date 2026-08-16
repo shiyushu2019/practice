@@ -17,7 +17,7 @@ def generate(
     prompt,
     max_new_tokens=200,
     temperature=1.0,
-    top_k=None,
+    top_p=None,
     device="cuda"
 ):
     """
@@ -52,9 +52,9 @@ def generate(
         max_new_tokens=safe_new_tokens,
         do_sample=temperature > 0,
         temperature=temperature if temperature > 0 else 1.0,
-        top_k=top_k if (top_k is not None and temperature > 0) else None,
+        top_p=top_p if (top_p is not None and temperature > 0) else None,
         pad_token_id=tokenizer.eos_token_id,
-        repetition_penalty=1.1,
+        repetition_penalty=1.15,
     )
 
     thread = threading.Thread(target=model.generate, kwargs=generation_kwargs)
@@ -74,8 +74,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, required=True, help="模型 checkpoint 路径（.pt 或 .bin）")
     parser.add_argument("--prompt", type=str, default="我，", help="输入提示")
     parser.add_argument("--max_new_tokens", type=int, default=768, help="最大生成 token 数")
-    parser.add_argument("--temperature", type=float, default=0, help="温度（0 为贪心）")
-    parser.add_argument("--top_k", type=int, default=20, help="Top-k 采样（None 则关闭）")
+    parser.add_argument("--temperature", type=float, default=0.8, help="温度（0 为贪心）")
+    parser.add_argument("--top_p", type=float, default=0.9, help="Top-p 采样（None 则关闭）")
     parser.add_argument("--device", type=str, default="cuda", help="设备")
     args = parser.parse_args()
 
@@ -97,7 +97,7 @@ if __name__ == "__main__":
         prompt=args.prompt,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
-        top_k=args.top_k,
+        top_p=args.top_p,
         device=args.device
     )
     print()
