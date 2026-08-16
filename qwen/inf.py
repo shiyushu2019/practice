@@ -74,8 +74,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, required=True, help="模型 checkpoint 路径（.pt 或 .bin）")
     parser.add_argument("--prompt", type=str, default="我，", help="输入提示")
     parser.add_argument("--max_new_tokens", type=int, default=768, help="最大生成 token 数")
-    parser.add_argument("--temperature", type=float, default=0.5, help="温度（0 为贪心）")
-    parser.add_argument("--top_k", type=int, default=30, help="Top-k 采样（None 则关闭）")
+    parser.add_argument("--temperature", type=float, default=0, help="温度（0 为贪心）")
+    parser.add_argument("--top_k", type=int, default=20, help="Top-k 采样（None 则关闭）")
     parser.add_argument("--device", type=str, default="cuda", help="设备")
     args = parser.parse_args()
 
@@ -84,7 +84,7 @@ if __name__ == "__main__":
         state_dict = load_file(args.checkpoint)
         #model.load_state_dict(state_dict, strict=False)
         missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-        print("Checkpoint loaded successfully.")
+        print(f"missing key:{missing_keys}")
     else:
         raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
     model=model.to(args.device)
