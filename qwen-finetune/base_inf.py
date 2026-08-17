@@ -1,11 +1,10 @@
-# python inf.py  --prompt "风从玉兰树梢滑下来，翻开了膝上那本旧笔记。姑姑的字迹在某一页停下：“今天铜铃响了三 次，每一次我都以为是春天。”我抬头，檐角的铜铃正轻轻转着，像在回应什么。阁楼的门半掩着，一束光斜斜地铺进来，刚好照亮了那一页空白的纸。"
+
+# python base_inf.py  --prompt "风从玉兰树梢滑下来，翻开了膝上那本旧笔记。姑姑的字迹在某一页停下：“今天铜铃响了三 次，每一次我都以为是春天。”我抬头，檐角的铜铃正轻轻转着，像在回应什么。阁楼的门半掩着，一束光斜斜地铺进来，刚好照亮了那一页空白的纸。"
 # export CUDA_VISIBLE_DEVICES=2
 
 import threading
 from transformers import AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer
 import argparse
-import os
-from safetensors.torch import load_file
 
 path="/data1/dataset/jssnu005/sys/qwen2.5"
 model = AutoModelForCausalLM.from_pretrained(path)
@@ -21,9 +20,6 @@ def generate(
     top_p=None,
     device="cuda"
 ):
-    """
-    流式生成文本，使用模型自带 KV cache，避免每步重算整段历史。
-    """
     model.eval()
     input_ids = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).input_ids.to(device)
     max_ctx = getattr(model.config, "max_position_embeddings", None)
@@ -46,7 +42,7 @@ def generate(
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=False)
     generation_kwargs = dict(
         input_ids=input_ids,
         streamer=streamer,
@@ -68,11 +64,9 @@ def generate(
     finally:
         thread.join()
 
-    return ""
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint", type=str, default="", help="模型 checkpoint 路径（.pt 或 .bin）")
     parser.add_argument("--prompt", type=str, default="我，", help="输入提示")
     parser.add_argument("--max_new_tokens", type=int, default=768, help="最大生成 token 数")
     parser.add_argument("--temperature", type=float, default=0.8, help="温度（0 为贪心）")
@@ -80,15 +74,6 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda", help="设备")
     args = parser.parse_args()
 
-    # 加载训练好的权重
-    if args.checkpoint != "":
-        if os.path.isfile(args.checkpoint):
-            state_dict = load_file(args.checkpoint)
-            #model.load_state_dict(state_dict, strict=False)
-            missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
-            print(f"missing key:{missing_keys}")
-        else:
-            raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
     model=model.to(args.device)
 
     # 生成

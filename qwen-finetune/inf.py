@@ -38,10 +38,19 @@ def prepare_input_ids(tokenizer, prompt, device):
         add_generation_prompt=True,
         return_tensors="pt",
     )
-    if isinstance(encoded, dict):
-        input_ids = encoded["input_ids"]
-    else:
+
+    if hasattr(encoded, "input_ids"):
+        input_ids = encoded.input_ids
+    elif isinstance(encoded, dict):
+        input_ids = encoded.get("input_ids")
+    elif isinstance(encoded, torch.Tensor):
         input_ids = encoded
+    else:
+        raise TypeError(
+            f"Unexpected chat template output type: {type(encoded)}. "
+            "Expected BatchEncoding/dict-like object with an input_ids field."
+        )
+
     if input_ids.dim() == 1:
         input_ids = input_ids.unsqueeze(0)
     return input_ids.to(device)
@@ -76,7 +85,7 @@ def generate(
     else:
         safe_new_tokens = max_new_tokens
 
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=False)
     generation_kwargs = dict(
         input_ids=input_ids,
         streamer=streamer,
