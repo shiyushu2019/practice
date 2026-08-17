@@ -42,20 +42,11 @@ class QADataset(Dataset):
         prompt = self._clean_text(prompt)
         response = self._clean_text(response)
 
-        user_message = [
-            {"role": "user", "content": prompt},
-        ]
         full_messages = [
             {"role": "user", "content": prompt},
             {"role": "assistant", "content": response},
         ]
 
-        prefix = self.tokenizer.apply_chat_template(
-            user_message,
-            tokenize=True,
-            add_generation_prompt=False,
-            truncation=False,
-        )
         full = self.tokenizer.apply_chat_template(
             full_messages,
             tokenize=True,
@@ -63,36 +54,37 @@ class QADataset(Dataset):
             truncation=False,
         )
 
-        if isinstance(prefix, list):  # 版本差异
-            prefix_ids = prefix
+        if isinstance(full, list):  # 版本差异
             full_ids = full
         else:
-            prefix_ids = prefix["input_ids"]
             full_ids = full["input_ids"]
 
-        prefix_ids = list(prefix_ids)
         full_ids = list(full_ids)
 
-        common_prefix_len = 0
-        for prefix_token, full_token in zip(prefix_ids, full_ids):
-            if prefix_token != full_token:
+        assistant_marker = "<|im_start|>assistant"
+        marker_tokens = self.tokenizer.encode(assistant_marker, add_special_tokens=False)
+        
+        # 在 full_ids 中查找 marker_tokens 第一次出现的位置
+        pos = -1
+        marker_len = len(marker_tokens)
+        for i in range(len(full_ids) - marker_len + 1):
+            if full_ids[i:i+marker_len] == marker_tokens:
+                pos = i + marker_len  # 位置的边界处理正确吗？是否需要+1/-1
                 break
-            common_prefix_len += 1
 
-        assistant_start = common_prefix_len
+        if pos == -1:
+            raise ValueError("no assistant tag")
 
+        # 截断到 max_length（右截断）
         if len(full_ids) > self.max_length:
             full_ids = full_ids[:self.max_length]
-            if assistant_start >= len(full_ids):
-                raise ValueError(
-                    "assistant segment is completely removed by right truncation; skip this sample"
-                )
-        else:
+            if pos >= len(full_ids):
+                raise ValueError("assistant is totally deleted")
             pass
 
         labels = [-100] * len(full_ids)
         assistant_end = len(full_ids)
-        labels[assistant_start:assistant_end] = full_ids[assistant_start:assistant_end]
+        labels[pos:len(full_ids)] = full_ids[pos:len(full_ids)]
 
         pad_len = max(0, self.max_length - len(full_ids))
         full_ids = full_ids + [self.tokenizer.pad_token_id] * pad_len
@@ -131,7 +123,7 @@ if __name__ == "__main__":
 
     for x in ds:
         x=x["input_ids"]
-        print(tokenizer.decode(x,skip_special_tokens=True))
+        print(tokenizer.decode(x,skip_special_tokens=False))
         input("按回车键继续...")
 
 
