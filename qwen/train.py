@@ -52,7 +52,7 @@ training_args = TrainingArguments(
                     max_steps=int(2e5),
                     warmup_steps=int(6e3),
 
-                    learning_rate=3e-4,
+                    learning_rate=5e-5,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=6,
@@ -60,7 +60,7 @@ training_args = TrainingArguments(
                     #gradient_accumulation_steps=1,
                     gradient_checkpointing=True,
 
-                    save_total_limit=2,
+                    save_total_limit=5,
                     logging_steps=10,
                     save_strategy="steps",
                     save_steps=500,
@@ -98,6 +98,13 @@ if __name__ == "__main__":
     #    torch.backends.cuda.enable_flash_sdp(True)
     #    torch.backends.cuda.enable_mem_efficient_sdp(True)
     model = Qwen2ForCausalLM(model_config)
+
+    from safetensors.torch import load_file
+    state_dict = load_file("/data1/code/jssnu005/sys/practice/qwen/checkpoints/checkpoint-13500/model.safetensors")
+    miss, _ = model.load_state_dict(state_dict, strict=False)
+    print("miss:", miss)
+    # 26-8-17 7%开始，放弃调度器和优化器
+
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
     #print(f"Attention implementation: {model.config._attn_implementation}")

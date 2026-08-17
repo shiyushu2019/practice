@@ -32,6 +32,10 @@ class BlocksDataset(IterableDataset):
             random.seed(123) # 确保多个进程随机结果一样
             random.shuffle(file_list)
             file_list = [f for i, f in enumerate(file_list) if i % world_size == rank]
+
+            file_list=file_list[int(len(file_list)*0.07)+1:]
+            # 2026-8-17 7%开始
+
         except Exception as e:
             print(f"failed to load .jsonl files: {e}") 
             exit(1) # 前期数据预处理出错，直接退出
