@@ -1,6 +1,5 @@
 # CUDA_VISIBLE_DEVICES=0,1,5 torchrun --nproc_per_node=3 --master_port=29599 train.py
 
-import logging
 from transformers import AutoModelForCausalLM
 import torch
 from peft import LoraConfig, TaskType, get_peft_model
@@ -10,7 +9,7 @@ from transformers import (
     AutoTokenizer
 )
 
-path="/data1/dataset/jssnu005/sys/qwen2.5"
+path="/data1/dataset/jssnu005/sys/qwen2.5-0.5B" # [0.5B is a test]
 tokenizer = AutoTokenizer.from_pretrained(path)
 tokenizer.pad_token = tokenizer.eos_token
 
@@ -19,7 +18,6 @@ lora_config = LoraConfig(
     inference_mode=False,     # 训练模式必须为 False
     r=64, 
     lora_alpha=128,
-    scaling="linear",
     target_modules=[
         "q_proj",
         "k_proj", 
@@ -35,20 +33,20 @@ lora_config = LoraConfig(
 
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
-                    warmup_ratio=0.08,
+                    warmup_steps=1500,
                     num_train_epochs=1,
 
                     learning_rate=2e-5,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=1, # 8张显卡
+                    per_device_train_batch_size=1, # 3张显卡
                     gradient_accumulation_steps=8,
                     gradient_checkpointing=True,
 
-                    save_total_limit=2,
+                    save_total_limit=3,
                     logging_steps=10,
                     save_strategy="steps",
-                    save_steps=500,
+                    save_steps=1500,
                     
                     #fp16=True,
                     bf16=True,
@@ -71,7 +69,7 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
     model = AutoModelForCausalLM.from_pretrained(path,
-                                                torch_dtype= torch.bfloat16,
+                                                dtype= torch.bfloat16,
                                                 attn_implementation= "sdpa",
                                                 use_cache=False, # 与 gradient_checkpointing 
                                             )
