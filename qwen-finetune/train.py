@@ -1,47 +1,37 @@
-# CUDA_VISIBLE_DEVICES=0,5 torchrun --nproc_per_node=2 --master_port=29501 train.py
-# CUDA_VISIBLE_DEVICES=5 torchrun --nproc_per_node=1 train.py
 # CUDA_VISIBLE_DEVICES=0,1,5 torchrun --nproc_per_node=3 --master_port=29599 train.py
 
 import logging
-from transformers import Qwen2Config, Qwen2ForCausalLM
+from transformers import AutoModelForCausalLM
 import torch
-from safetensors.torch import load_file
+from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
     Trainer,
     TrainingArguments,
     AutoTokenizer
 )
 
-logger = logging.getLogger("data_processing")
-logger.setLevel(logging.INFO)
-if not logger.handlers:
-    handler = logging.FileHandler("data.log", mode="a", encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    logger.addHandler(handler)
-    logger.propagate = False
+path="/data1/dataset/jssnu005/sys/qwen2.5"
+tokenizer = AutoTokenizer.from_pretrained(path)
+tokenizer.pad_token = tokenizer.eos_token
 
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B", trust_remote_code=True)
-tokenizer.model_max_length = 10000000
-if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
-    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-pad_token_id = tokenizer.pad_token_id
-
-model_config = Qwen2Config(
-                    vocab_size=len(tokenizer),
-                    hidden_size=2048,   
-                    intermediate_size=5504,
-                    num_hidden_layers=20,           
-                    num_attention_heads=16,       
-                    num_key_value_heads=8,          
-                    max_position_embeddings=768, 
-                    attention_dropout=0.0,
-                    rope_parameters={"rope_theta": 100000.0, "rope_type": "default"},
-                    pad_token_id=tokenizer.pad_token_id,
-                    bos_token_id=tokenizer.bos_token_id,
-                    eos_token_id=tokenizer.eos_token_id,
-                    use_cache=False, 
-                )
-model_config._attn_implementation = "sdpa"  
+lora_config = LoraConfig(
+    task_type=TaskType.CAUSAL_LM,    # 因果语言建模
+    inference_mode=False,     # 训练模式必须为 False
+    r=64, 
+    lora_alpha=128,
+    scaling="linear",
+    target_modules=[
+        "q_proj",
+        "k_proj", 
+        "v_proj", 
+        "o_proj",          
+        "gate_proj", 
+        "up_proj", 
+        "down_proj"
+    ],
+    lora_dropout=0.05,               
+    bias="none",  # 不训练偏置项，节省显存
+)
 
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
@@ -51,8 +41,8 @@ training_args = TrainingArguments(
                     learning_rate=2e-5,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=8, # 8张显卡
-                    gradient_accumulation_steps=1,
+                    per_device_train_batch_size=1, # 8张显卡
+                    gradient_accumulation_steps=8,
                     gradient_checkpointing=True,
 
                     save_total_limit=2,
@@ -60,7 +50,8 @@ training_args = TrainingArguments(
                     save_strategy="steps",
                     save_steps=500,
                     
-                    fp16=True,
+                    #fp16=True,
+                    bf16=True,
                     optim="adamw_8bit",
                     dataloader_num_workers=0,
                     max_grad_norm=1.0
@@ -79,20 +70,21 @@ def collate_fn(batch):
     return {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
 
 if __name__ == "__main__":
+    model = AutoModelForCausalLM.from_pretrained(path,
+                                                torch_dtype= torch.bfloat16,
+                                                attn_implementation= "sdpa",
+                                                use_cache=False, # 与 gradient_checkpointing 
+                                            )
 
     #if torch.cuda.is_available():
     #    torch.backends.cuda.enable_flash_sdp(True)
     #    torch.backends.cuda.enable_mem_efficient_sdp(True)
-    model = Qwen2ForCausalLM(model_config)
-    missing, unexpected=model.load_state_dict(load_file('../pretrain/checkpoints/checkpoint-6000/model.safetensors'),strict=False)
-    print("Missing keys:", missing)
-    total_b = sum(p.numel() for p in model.parameters()) / 1e9
-    print(f"参数量: {total_b:.4f} B")
-    print(f"Attention implementation: {model.config._attn_implementation}")
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
 
-    from data import QADataset
+    from data import QADataset # 指令遵循数据集
     train_dataset=QADataset(path="/data1/dataset/jssnu005/sys/I_Wonder_Why-Chinese/general",
-                            max_length=model.config.max_position_embeddings,
+                            max_length=768,
                             tokenizer=tokenizer)
 
     trainer = Trainer(
