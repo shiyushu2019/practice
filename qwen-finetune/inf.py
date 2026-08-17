@@ -7,7 +7,7 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
-base_path = "/data1/dataset/jssnu005/sys/qwen2.5"
+base_path = "/data1/dataset/jssnu005/sys/qwen2.5-0.5B" # [0.5B is a test]
 tokenizer = AutoTokenizer.from_pretrained(base_path)
 tokenizer.pad_token = tokenizer.eos_token
 
@@ -119,12 +119,13 @@ if __name__ == "__main__":
     torch_dtype = torch.bfloat16 if args.device == "cuda" else torch.float32
     model = AutoModelForCausalLM.from_pretrained(
         base_path,
-        torch_dtype=torch_dtype,
+        dtype=torch_dtype,
         attn_implementation="sdpa",
         use_cache=True,
     )
 
     lora_path = get_latest_checkpoint(base_dir="./checkpoints")
+    print(f"using ckp: {lora_path}")
     model = PeftModel.from_pretrained(model, lora_path)
     model = model.to(args.device)
 
