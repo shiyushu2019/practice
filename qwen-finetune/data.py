@@ -42,7 +42,7 @@ class QADataset(Dataset):
         prompt = self._clean_text(prompt)
         response = self._clean_text(response)
 
-        user_assistant = [
+        user_message = [
             {"role": "user", "content": prompt},
         ]
         full_messages = [
@@ -51,7 +51,7 @@ class QADataset(Dataset):
         ]
 
         prefix = self.tokenizer.apply_chat_template(
-            user_assistant,
+            user_message,
             tokenize=True,
             add_generation_prompt=False,
             truncation=False,
