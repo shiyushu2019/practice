@@ -9,7 +9,6 @@ import argparse
 path="/data1/dataset/jssnu005/sys/qwen2.5-0.5B" # [0.5B is a test]
 model = AutoModelForCausalLM.from_pretrained(path)
 tokenizer = AutoTokenizer.from_pretrained(path)
-tokenizer.pad_token = tokenizer.eos_token
 
 def generate(
     model,

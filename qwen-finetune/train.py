@@ -1,4 +1,5 @@
-# CUDA_VISIBLE_DEVICES=0,1,5 torchrun --nproc_per_node=3 --master_port=29599 train.py
+# CUDA_VISIBLE_DEVICES=0,1,5 torchrun --nproc_per_node=3 --master_port=29588 train.py
+# CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nproc_per_node=8 --master_port=29588 train.py
 
 from transformers import AutoModelForCausalLM
 import torch
@@ -9,9 +10,8 @@ from transformers import (
     AutoTokenizer
 )
 
-path="/data1/dataset/jssnu005/sys/qwen2.5-0.5B" # [0.5B is a test]
+path="/data1/dataset/jssnu005/sys/qwen3-0.6B" # [SMOKE]
 tokenizer = AutoTokenizer.from_pretrained(path)
-tokenizer.pad_token = tokenizer.eos_token
 
 lora_config = LoraConfig(
     task_type=TaskType.CAUSAL_LM,    # 因果语言建模
@@ -40,19 +40,20 @@ training_args = TrainingArguments(
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=1, # 3张显卡
-                    gradient_accumulation_steps=8,
+                    gradient_accumulation_steps=1, # [SMOKE]
                     gradient_checkpointing=True,
 
                     save_total_limit=3,
                     logging_steps=10,
                     save_strategy="steps",
-                    save_steps=1500,
+                    save_steps=30, # [SMOKE]
                     
                     #fp16=True,
                     bf16=True,
                     optim="adamw_8bit",
                     dataloader_num_workers=0,
-                    max_grad_norm=1.0
+                    max_grad_norm=1.0,
+                    ddp_find_unused_parameters=False
                 )
 
 def collate_fn(batch):

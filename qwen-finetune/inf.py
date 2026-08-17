@@ -7,9 +7,8 @@ import torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
-base_path = "/data1/dataset/jssnu005/sys/qwen2.5-0.5B" # [0.5B is a test]
+base_path = "/data1/dataset/jssnu005/sys/qwen3-0.6B" # [SMOKE]
 tokenizer = AutoTokenizer.from_pretrained(base_path)
-tokenizer.pad_token = tokenizer.eos_token
 
 def get_latest_checkpoint(base_dir="./checkpoints"):
     if not os.path.isdir(base_dir):

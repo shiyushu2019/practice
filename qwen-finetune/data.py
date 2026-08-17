@@ -113,11 +113,9 @@ class QADataset(Dataset):
 if __name__ == "__main__":
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2-7B", trust_remote_code=True)
-    tokenizer.model_max_length = 10000000
-    if tokenizer.pad_token_id is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
-        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-    pad_token_id = tokenizer.pad_token_id
+    base_path = "/data1/dataset/jssnu005/sys/qwen3-0.6B" # [SMOKE]
+    tokenizer = AutoTokenizer.from_pretrained(base_path)
+    
     ds = QADataset(tokenizer=tokenizer)
     print(len(ds))
 
@@ -125,5 +123,3 @@ if __name__ == "__main__":
         x=x["input_ids"]
         print(tokenizer.decode(x,skip_special_tokens=False))
         input("按回车键继续...")
-
-
