@@ -7,7 +7,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 from Bravo import from_natural_to_format
 
-base_path = "/data1/dataset/jssnu005/sys/qwen3-14B" # [SMOKE]
+base_path = "/data1/dataset/jssnu005/sys/qwen3-8B-instruct" # [SMOKE]
 tokenizer = AutoTokenizer.from_pretrained(base_path)
 
 def get_latest_checkpoint(base_dir="./checkpoints"):
@@ -129,7 +129,8 @@ if __name__ == "__main__":
 
     while True:
         prompt = input("user:")
-        prompt=from_natural_to_format(from_natural_to_format)
+        prompt=from_natural_to_format(prompt)
+        # print(f"提示词：\n{prompt}")
         generate(
             model=model,
             tokenizer=tokenizer,
