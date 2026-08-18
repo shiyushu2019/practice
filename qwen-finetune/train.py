@@ -1,5 +1,5 @@
 # CUDA_VISIBLE_DEVICES=0,1,5 torchrun --nproc_per_node=3 --master_port=29588 train.py
-# CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun --nproc_per_node=8 --master_port=29588 train.py
+# CUDA_VISIBLE_DEVICES=0,1,2,3,5,6,7 torchrun --nproc_per_node=7 --master_port=29588 train.py
 
 from transformers import AutoModelForCausalLM
 import torch
@@ -10,7 +10,7 @@ from transformers import (
     AutoTokenizer
 )
 
-path="/data1/dataset/jssnu005/sys/qwen3-0.6B" # [SMOKE]
+path="/data1/dataset/jssnu005/sys/qwen3-14B"
 tokenizer = AutoTokenizer.from_pretrained(path)
 
 lora_config = LoraConfig(
@@ -33,20 +33,20 @@ lora_config = LoraConfig(
 
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
-                    warmup_steps=1500,
+                    warmup_steps=1360,
                     num_train_epochs=1,
 
-                    learning_rate=2e-5,
+                    learning_rate=5e-5,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
-                    per_device_train_batch_size=1, # 3张显卡
-                    gradient_accumulation_steps=1, # [SMOKE]
+                    per_device_train_batch_size=1,
+                    gradient_accumulation_steps=3,
                     gradient_checkpointing=True,
 
                     save_total_limit=3,
                     logging_steps=10,
                     save_strategy="steps",
-                    save_steps=30, # [SMOKE]
+                    save_steps=1000,
                     
                     #fp16=True,
                     bf16=True,
