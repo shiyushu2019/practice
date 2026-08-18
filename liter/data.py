@@ -3,6 +3,8 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 import json
 
+fix_think_format="<think>\n好的，用户给了一个非常详细的创作需求，从若干方面对我们的创作提出了要求。我现在根据指令，进行创作。\n</think>"
+
 class QADataset(Dataset):
     def __init__(
         self,
@@ -44,6 +46,7 @@ class QADataset(Dataset):
     def _encode_chat(self, prompt, response):
         prompt = self._clean_text(prompt)
         response = self._clean_text(response)
+        response=fix_think_format+response
 
         full_messages = [
             {"role": "user", "content": prompt},
