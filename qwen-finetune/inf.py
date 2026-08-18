@@ -84,8 +84,10 @@ def generate(
     else:
         safe_new_tokens = max_new_tokens
 
-    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=False)
+    streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
     generation_kwargs = dict(
+        stop_strings=['<|endoftext|>'],
+        tokenizer=tokenizer,
         input_ids=input_ids,
         streamer=streamer,
         max_new_tokens=safe_new_tokens,
