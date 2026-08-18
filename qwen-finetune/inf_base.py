@@ -6,7 +6,7 @@ import threading
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
-base_path = "/data1/dataset/jssnu005/sys/qwen3-14B" # [SMOKE]
+base_path = "/data1/dataset/jssnu005/sys/qwen3-8B" # [SMOKE]
 tokenizer = AutoTokenizer.from_pretrained(base_path)
 
 def get_latest_checkpoint(base_dir="./checkpoints"):

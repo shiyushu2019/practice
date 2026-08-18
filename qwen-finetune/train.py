@@ -10,7 +10,7 @@ from transformers import (
     AutoTokenizer
 )
 
-path="/data1/dataset/jssnu005/sys/qwen3-14B"
+path="/data1/dataset/jssnu005/sys/qwen3-8B"
 tokenizer = AutoTokenizer.from_pretrained(path)
 
 lora_config = LoraConfig(
@@ -36,11 +36,11 @@ training_args = TrainingArguments(
                     warmup_steps=1360,
                     num_train_epochs=1,
 
-                    learning_rate=5e-5,
+                    learning_rate=2e-5,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=1,
-                    gradient_accumulation_steps=3,
+                    gradient_accumulation_steps=8,
                     gradient_checkpointing=True,
 
                     save_total_limit=3,
