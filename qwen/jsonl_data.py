@@ -33,8 +33,8 @@ class BlocksDataset(IterableDataset):
             random.shuffle(file_list)
             file_list = [f for i, f in enumerate(file_list) if i % world_size == rank]
 
-            file_list=file_list[int(len(file_list)*0.07)+1:]
-            # 2026-8-17 7%开始
+            file_list=file_list[10+int(len(file_list)*0.07)+1:]
+            # 26-8-19 再次重启
 
         except Exception as e:
             print(f"failed to load .jsonl files: {e}") 

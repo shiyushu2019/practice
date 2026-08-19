@@ -33,10 +33,10 @@ lora_config = LoraConfig(
 
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
-                    warmup_steps=1360,
+                    warmup_steps=500,
                     num_train_epochs=1,
 
-                    learning_rate=2e-5,
+                    learning_rate=8e-7,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=1,

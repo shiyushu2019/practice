@@ -49,10 +49,10 @@ model_config = Qwen2Config(
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
                     #num_train_epochs=30,
-                    max_steps=int(2e5),
+                    max_steps=int(1e5),
                     warmup_steps=int(6e3),
 
-                    learning_rate=5e-5,
+                    learning_rate=8e-6,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=6,
@@ -100,10 +100,10 @@ if __name__ == "__main__":
     model = Qwen2ForCausalLM(model_config)
 
     from safetensors.torch import load_file
-    state_dict = load_file("/data1/code/jssnu005/sys/practice/qwen/checkpoints/checkpoint-13500/model.safetensors")
+    state_dict = load_file("/data1/code/jssnu005/sys/practice/qwen/checkpoints/checkpoint-6500/model.safetensors")
     miss, _ = model.load_state_dict(state_dict, strict=False)
     print("miss:", miss)
-    # 26-8-17 7%开始，放弃调度器和优化器
+    # 26-8-19 再次重启
 
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
