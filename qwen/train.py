@@ -49,10 +49,10 @@ model_config = Qwen2Config(
 training_args = TrainingArguments(
                     output_dir='./checkpoints',
                     #num_train_epochs=30,
-                    max_steps=int(1e5),
+                    max_steps=int(2e5),
                     warmup_steps=int(6e3),
 
-                    learning_rate=8e-6,
+                    learning_rate=1e-6,
                     weight_decay=0.01,
                     lr_scheduler_type="cosine",
                     per_device_train_batch_size=6,
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     state_dict = load_file("/data1/code/jssnu005/sys/practice/qwen/checkpoints/checkpoint-6500/model.safetensors")
     miss, _ = model.load_state_dict(state_dict, strict=False)
     print("miss:", miss)
-    # 26-8-19 再次重启
+    # Should I aggressively reduce LR ?
 
     total_b = sum(p.numel() for p in model.parameters()) / 1e9
     print(f"参数量: {total_b:.4f} B")
