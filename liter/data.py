@@ -1,9 +1,15 @@
-from datasets import load_dataset
 from torch.utils.data import Dataset
 from tqdm import tqdm
 import json
 
-fix_think_format="<think>\n好的，用户给了一个非常详细的创作需求，从若干方面对我们的创作提出了要求。我现在根据指令，进行创作。\n</think>"
+def get_think(prompt):
+    think=f"""<think>
+好的，用户给了一个非常详细的创作需求，从若干方面对我们的创作提出了要求。这个要求的具体内容为：
+{prompt}
+我现在根据指令，进行创作。
+</think>
+"""
+    return think
 
 class QADataset(Dataset):
     def __init__(
@@ -46,7 +52,7 @@ class QADataset(Dataset):
     def _encode_chat(self, prompt, response):
         prompt = self._clean_text(prompt)
         response = self._clean_text(response)
-        response=fix_think_format+response
+        response=get_think(prompt)+response
 
         full_messages = [
             {"role": "user", "content": prompt},
@@ -129,5 +135,5 @@ if __name__ == "__main__":
 
     for x in ds:
         x=x["input_ids"]
-        print(tokenizer.decode(x,skip_special_tokens=False)[:2000])
+        print(tokenizer.decode(x,skip_special_tokens=False))
         input("按回车键继续...")

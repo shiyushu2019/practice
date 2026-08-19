@@ -11,32 +11,34 @@ client = OpenAI(
         api_key=os.environ.get('DEEPSEEK_API_KEY'),
         base_url="https://api.deepseek.com")
 dimensions=['文体','核心立意','事件与情节','主体与对象','时空与情境','陈述方式','结构节奏','语言风格','审美效果','创作语境']
+example_lines = "\n".join([f"{dim}：..." for dim in dimensions])
 MAX_TEXT_LEN = 25000
 MAX_RETRIES = 3
 
 def get_response(text):
 
-    if len(text) > MAX_TEXT_LEN:
-        print(f"[warning] 输入文本过长（{len(text)} 字符），将截断为前 {MAX_TEXT_LEN} 字符后再请求。")
-        text = text[:MAX_TEXT_LEN]
+    system_prompt = f"""你是一个专业的文学分析助手。你的任务是严格按照下面规定的角度和格式，对用户提供的文章进行深入、客观的分析。
 
-    system_prompt="你是一个助手，从用户规定的角度分析一篇文章，并按照用户指定的格式输出分析结果。"
-    user_prompt=f"""对于这样一篇文章：
+一、分析角度（共{len(dimensions)}个，必须依次全部分析，一个都不能遗漏）：
+{', '.join(dimensions)}
 
-{text}
+二、分析规则：
+1. 必须依次分析全部{len(dimensions)}个角度，不得遗漏任何一个。
+2. 每个角度的分析必须客观、基于原文，反映文章特点。
+3. 根据文章特点，每个角度可长可短：除“文体”字段只输出一个名词（如“散文”、“小说”，“诗歌”，等等）、不得有其他内容外，其他角度一般50-300字为宜，但你可根据实际情况自行权衡。
+4. 忽略作者身份，不得提到作者；忽略出版情况，不得提到所获奖项、所在期刊等信息; 忽略与文章无关的其他信息。只看文章本身。
 
-请你从\'{', '.join(dimensions)}\'这{len(dimensions)}个角度，依次对文章进行深入分析。
-输出格式：一共{len(dimensions)}行，每行包括角度名称+冒号+分析结果。每个角度都必须分析，不可遗漏。根据文章特点，每个维度的分析可以简短或详细，但需客观、基于原文。
-举例（只是例子，不代表这篇文章）:
+三、输出格式：
+一共输出{len(dimensions)}行，每行格式为“角度名称：分析结果”。不要添加任何额外说明、标题或总结，只依次输出这{len(dimensions)}行。
 
-文体：散文
-核心立意：表达极端孤独中的超然与坚守
-事件与情节：记录了作者一次郊游，偶遇一只孤独的梅花，将自己的人生经历与梅花相类比
-......（我这里后面的行省略，但你必须{len(dimensions)}行全都写）
+四、输出格式示例（仅示范格式，这里用...代替内容，你必须基于输入文章独立分析）：
+{example_lines}
+示例中的...仅为占位符，表示该位置应填入具体分析文字，不代表实际输出长度或内容。
+"""
 
-对于每个方面，既可以像上面那样很短。也可以根据需要，把个别角度的分析写得很长。然而，‘文体’字段只是一个名词即可，不能有其他！
-总而言之，必须从所有{len(dimensions)}个角度进行深入分析，根据文章具体特点，每个角度可长可短（文体等字段一般比较短，但一般的30-100字为宜，当然你结合实际情况你自己权衡），但必须客观反映文章特点，最后格式化输出。
-不要添加任何额外说明、标题或总结，只依次输出这 {len(dimensions)} 行即可。整个过程务必忽略作者身份，不能提到作者，忽略出版情况，不要提到所获奖项、所在期刊等信息，只看文章本身。"""
+    user_prompt = f"""请按照系统要求分析下面这篇文章：
+
+{text}"""
     # print(user_prompt) # debug
 
     last_error = None
@@ -49,7 +51,7 @@ def get_response(text):
                     {"role": "user", "content": user_prompt},
                 ],
                 stream=False,
-                timeout=60,
+                timeout=200,
                 reasoning_effort="high",
                 extra_body={"thinking": {"type": "enabled"}}
             )
@@ -74,7 +76,7 @@ if __name__=="__main__":
 
     data_path="./data"
     file_list = sorted(glob.glob(f"{data_path}/**/*.txt", recursive=True))
-    file_list=file_list[:10] # debug
+    file_list=file_list[:3] # debug
     random.seed(123)
     random.shuffle(file_list)
     for fpath in tqdm(file_list):
