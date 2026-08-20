@@ -26,7 +26,8 @@ def get_response(text):
 1. 必须依次分析全部{len(dimensions)}个角度，不得遗漏任何一个。
 2. 每个角度的分析必须客观、基于原文，反映文章特点。
 3. 根据文章特点，每个角度可长可短：除“文体”字段只输出一个名词（如“散文”、“小说”，“诗歌”，等等）、不得有其他内容外，其他角度一般50-300字为宜，但你可根据实际情况自行权衡。
-4. 忽略作者身份，不得提到作者；忽略出版情况，不得提到所获奖项、所在期刊等信息; 忽略与文章无关的其他信息。只看文章本身。
+4. 忽略作者身份，不得提到作者；忽略出版情况，不得提到所获奖项、所在期刊等信息; 忽略与文章无关的其他信息；忽略署名、日期、后记、背景介绍，只看文章本身。
+5. 严格遵循角度划分，例如，叙述视角只能写在“陈述方式”里，不要写在其它栏目，其他内容同理。
 
 三、输出格式：
 一共输出{len(dimensions)}行，每行格式为“角度名称：分析结果”。不要添加任何额外说明、标题或总结，只依次输出这{len(dimensions)}行。
@@ -56,7 +57,7 @@ def get_response(text):
                 extra_body={"thinking": {"type": "enabled"}}
             )
             content = response.choices[0].message.content
-            if content is None:
+            if content is None or len(content.strip())==0:
                 raise ValueError("API 返回空内容")
             return content
         except (APIConnectionError, APITimeoutError, RateLimitError, APIStatusError, OSError, ValueError) as e:
@@ -76,7 +77,7 @@ if __name__=="__main__":
 
     data_path="./data"
     file_list = sorted(glob.glob(f"{data_path}/**/*.txt", recursive=True))
-    file_list=file_list[:3] # debug
+    file_list=file_list[:10] # debug
     random.seed(123)
     random.shuffle(file_list)
     for fpath in tqdm(file_list):
