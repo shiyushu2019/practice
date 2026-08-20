@@ -7,7 +7,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 from Bravo import from_natural_to_format
 
-base_path = "/data1/dataset/jssnu005/sys/qwen3-8B-instruct" # [SMOKE]
+base_path = "/data1/dataset/jssnu005/sys/qwen2.5-14B-instruct" # [SMOKE]
 tokenizer = AutoTokenizer.from_pretrained(base_path)
 
 def get_latest_checkpoint(base_dir="./checkpoints"):

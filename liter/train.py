@@ -10,7 +10,7 @@ from transformers import (
     AutoTokenizer
 )
 
-path="/data1/dataset/jssnu005/sys/qwen3-14B"
+path="/data1/dataset/jssnu005/sys/qwen2.5-14B-instruct"
 tokenizer = AutoTokenizer.from_pretrained(path)
 
 lora_config = LoraConfig(

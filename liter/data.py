@@ -52,7 +52,7 @@ class QADataset(Dataset):
     def _encode_chat(self, prompt, response):
         prompt = self._clean_text(prompt)
         response = self._clean_text(response)
-        response=get_think(prompt)+response
+        # response=get_think(prompt)+response
 
         full_messages = [
             {"role": "user", "content": prompt},
@@ -127,7 +127,7 @@ class QADataset(Dataset):
 if __name__ == "__main__":
     from transformers import AutoTokenizer
 
-    base_path = "/data1/dataset/jssnu005/sys/qwen3-0.6B" # [SMOKE]
+    base_path = "/data1/dataset/jssnu005/sys/qwen2.5-14B-instruct" # [SMOKE]
     tokenizer = AutoTokenizer.from_pretrained(base_path)
     
     ds = QADataset(tokenizer=tokenizer)
