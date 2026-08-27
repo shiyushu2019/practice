@@ -22,6 +22,7 @@ MODELS = {
     "baseline": os.path.join(WEIGHTS_DIR, "baseline.pt"),
     "cbam": os.path.join(WEIGHTS_DIR, "cbam.pt"),
     "cf": os.path.join(WEIGHTS_DIR, "cf.pt"),
+    "cf_norm": os.path.join(WEIGHTS_DIR, "cf_norm.pt"),
 }
 NAMES = ["RBC", "WBC", "Platelets"]
 
@@ -38,7 +39,7 @@ def main():
             print(f"⚠️  跳过 {name}: 找不到 {path}")
             continue
         m = YOLO(path)
-        r = m.val(data="bccd.yaml", split=args.split, device=args.device,
+        r = m.val(data=os.path.join(HERE, "bccd.yaml"), split=args.split, device=args.device,
                   plots=False, save=False, verbose=False)
         b = r.box
         print(f"[{name:<9}] mAP@0.5={b.map50:.4f}  mAP@0.5:0.95={b.map:.4f}  "

@@ -1,17 +1,25 @@
-"""统一训练脚本 —— CBAM / Focal Loss 真正生效的版本。
+"""统一训练脚本 —— 严格按实验文档实现 CBAM + Focal Loss。
 
 用法:
-    python train.py --variant baseline          # 纯 YOLO11n (对照)
-    python train.py --variant cbam              # YOLO11n + CBAM 注意力 (真正注入)
-    python train.py --variant cf                # YOLO11n + CBAM + Focal Loss (真正接入)
-    python train.py --variant cf --batch 32 --epochs 50 --device 4
+    python train.py --variant baseline          # 纯 YOLOv8n (对照)
+    python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
+    python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=2.0)
+    python train.py --variant cf --batch 32 --epochs 100
+    python train.py --variant cf --freeze-epochs 10   # 文档迁移学习流程: 先冻结后解冻
+    python train.py --variant cf --normalize           # Focal Loss 按 BCE 总量归一化 (实验性)
 
 训练完成后 best 权重统一保存到 weights/<variant>.pt。
 
-说明: 之前版本的 CBAM 在原训练脚本里对 model.model 的原地修改会被
-ultralytics 在 model.train() 内部按 yaml 重建模型时丢弃, 导致 CBAM 从未生效。
-本脚本通过自定义 DetectionTrainer.get_model(), 在模型构建阶段就把 CBAM 注入
-backbone、把 Focal Loss 绑定到模型 criterion, 从而保证二者真正参与前向/反向。
+对应文档技术路线:
+1. Backbone 的 ConvModule 中嵌入 CBAM 注意力模块 (通道 + 空间双重注意力)。
+2. 替换分类损失函数为 Focal Loss, 配置 alpha=0.25、gamma=2.0 (类别平衡 alpha_t)。
+3. SGD 优化器 + 余弦退火, 训练 100 轮。
+4. 迁移学习流程: 先冻结主干训练检测头, 再解冻全网低学习率精调
+   (--freeze-epochs 10; 实测在 BCCD 上单阶段 --freeze-epochs 0 略优, 故默认 0)。
+
+说明: 之前版本的 CBAM 在原训练脚本里对 model.model 的原地修改会被 ultralytics 在
+model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 DetectionTrainer.get_model()
+在模型构建阶段注入 CBAM / Focal Loss, 保证二者真正参与前向/反向。
 """
 import argparse
 import os
@@ -21,32 +29,49 @@ import sys
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import torch.nn as nn  # noqa: E402
 from ultralytics.models.yolo.detect import DetectionTrainer  # noqa: E402
 from ultralytics.nn.tasks import DetectionModel  # noqa: E402
+from ultralytics.nn.modules import Conv  # noqa: E402
 from ultralytics import YOLO  # noqa: E402
 
-from cbam import CBAM  # noqa: E402
+from cbam import CBAMConv  # noqa: E402
 from focal_loss import FocalDetectionModel  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_DIR = os.path.join(HERE, "weights")
-PRETRAINED = os.path.join(WEIGHTS_DIR, "yolo11n.pt")
+PRETRAINED = os.path.join(WEIGHTS_DIR, "yolov8n.pt")
 
 
 def inject_cbam(model):
-    """在 backbone 的 SPPF 层前插入 CBAM, 返回被替换的层索引。"""
-    layers = list(model.model)
-    sppf_idx = next(i for i, l in enumerate(layers) if "SPPF" in str(l))
-    sppf = layers[sppf_idx]
-    # SPPF 的输入通道是 cv1 (c1), 不是 cv2 (cv2 是 4 条池化分支拼接后的 512 通道)
-    in_channels = sppf.cv1.conv.in_channels
-    new_layer = nn.Sequential(CBAM(in_channels, reduction=16), sppf)
-    # 复制原 SPPF 层的 f/i 属性, 否则 ultralytics 的 _predict_once 访问 m.f/m.i 会报错
-    new_layer.f = getattr(sppf, "f", -1)
-    new_layer.i = getattr(sppf, "i", sppf_idx)
-    model.model[sppf_idx] = new_layer
-    return sppf_idx
+    """在 Backbone 的 ConvModule 中嵌入 CBAM, 返回被替换的层索引。"""
+    replaced = []
+    for index, layer in enumerate(model.model):
+        # Detection head also contains Conv layers; only alter the backbone.
+        if index >= 10 or not isinstance(layer, Conv):
+            continue
+        if isinstance(layer, CBAMConv):
+            replaced.append(index)
+            continue
+
+        conv = CBAMConv(
+            layer.conv.in_channels,
+            layer.conv.out_channels,
+            layer.conv.kernel_size[0],
+            layer.conv.stride[0],
+            layer.conv.padding[0],
+            layer.conv.groups,
+            layer.conv.dilation[0],
+            layer.act,
+        )
+        conv.load_state_dict(layer.state_dict(), strict=False)
+        conv.f = getattr(layer, "f", -1)
+        conv.i = getattr(layer, "i", index)
+        model.model[index] = conv
+        replaced.append(index)
+
+    if not replaced:
+        raise RuntimeError("未找到可嵌入 CBAM 的 Backbone Conv 层")
+    return replaced
 
 
 class CBAMFocalTrainer(DetectionTrainer):
@@ -57,21 +82,22 @@ class CBAMFocalTrainer(DetectionTrainer):
         if variant == "cf":
             gamma = float(getattr(self, "focal_gamma", 2.0))
             alpha = float(getattr(self, "focal_alpha", 0.25))
+            normalize = bool(getattr(self, "focal_normalize", False))
             model = self.set_model_names_for_load(
                 FocalDetectionModel(cfg, ch=self.data["channels"], nc=self.data["nc"],
-                                    verbose=verbose, gamma=gamma, alpha=alpha)
+                                    verbose=verbose, gamma=gamma, alpha=alpha,
+                                    normalize=normalize)
             )
-            print(f"  [注入] Focal Loss 已接入 criterion (gamma={gamma}, alpha={alpha})")
+            print(f"  [注入] Focal Loss 已接入 criterion (gamma={gamma}, alpha={alpha}, normalize={normalize})")
         else:
             model = self.set_model_names_for_load(
                 DetectionModel(cfg, ch=self.data["channels"], nc=self.data["nc"], verbose=verbose)
             )
+        if variant in ("cbam", "cf"):
+            indices = inject_cbam(model)
+            print(f"  [注入] CBAM 已嵌入 backbone Conv 层 {indices}")
         if weights:
             model.load(weights)
-
-        if variant in ("cbam", "cf"):
-            idx = inject_cbam(model)
-            print(f"  [注入] CBAM 已插入 backbone 第 {idx} 层 (SPPF 前)")
         return model
 
 
@@ -85,27 +111,27 @@ def verify(path):
     return has_cbam
 
 
-def main():
-    ap = argparse.ArgumentParser(description="统一训练脚本 (CBAM/Focal 真正生效)")
-    ap.add_argument("--variant", default="baseline", choices=["baseline", "cbam", "cf"])
-    ap.add_argument("--device", default="4")
-    ap.add_argument("--epochs", type=int, default=50)
-    ap.add_argument("--batch", type=int, default=32)
-    ap.add_argument("--gamma", type=float, default=2.0)
-    ap.add_argument("--alpha", type=float, default=0.25)
-    args = ap.parse_args()
-
-    overrides = {
-        "model": PRETRAINED,
-        "data": "bccd.yaml",
-        "epochs": args.epochs,
+def build_overrides(args, name, model, epochs, freeze, lr0):
+    """按文档技术路线构造 ultralytics 训练配置。"""
+    return {
+        "model": model,
+        "data": os.path.join(HERE, "bccd.yaml"),
+        "epochs": epochs,
         "batch": args.batch,
         "imgsz": 640,
         "optimizer": "SGD",
-        "lr0": 0.01,
+        "lr0": lr0,
         "lrf": 0.01,
         "weight_decay": 0.0005,
         "warmup_epochs": 3,
+        "cos_lr": True,
+        "mosaic": 1.0,
+        "degrees": 180,
+        "flipud": 0.5,
+        "fliplr": 0.5,
+        "hsv_h": 0.015,
+        "hsv_s": 0.7,
+        "hsv_v": 0.4,
         "patience": 100,
         "seed": 0,
         "deterministic": True,
@@ -113,27 +139,77 @@ def main():
         "close_mosaic": 10,
         "device": args.device,
         "project": WEIGHTS_DIR,
-        "name": f"_{args.variant}_train",
+        "name": name,
         "exist_ok": True,
         "plots": True,
+        "freeze": freeze,
     }
 
-    print("=" * 70)
-    print(f"训练变体: {args.variant}   batch={args.batch}  epochs={args.epochs}  device={args.device}")
-    print("=" * 70)
 
+def run_phase(overrides, args, variant):
+    """执行一个训练阶段 (冻结 or 解冻)。"""
     trainer = CBAMFocalTrainer(overrides=overrides, _callbacks=None)
-    trainer.variant = args.variant
+    trainer.variant = variant
     trainer.focal_gamma = args.gamma
     trainer.focal_alpha = args.alpha
+    trainer.focal_normalize = args.normalize
     trainer.train()
 
+
+def main():
+    ap = argparse.ArgumentParser(description="统一训练脚本 (CBAM/Focal 按文档实现)")
+    ap.add_argument("--variant", default="baseline", choices=["baseline", "cbam", "cf"])
+    ap.add_argument("--device", default="4")
+    ap.add_argument("--epochs", type=int, default=100)
+    ap.add_argument("--batch", type=int, default=32)
+    ap.add_argument("--gamma", type=float, default=2.0)
+    ap.add_argument("--alpha", type=float, default=0.25)
+    ap.add_argument("--normalize", action="store_true",
+                    help="Focal Loss 按平均调制因子归一化, 保持与 BCE 相近的量纲")
+    ap.add_argument("--freeze-epochs", type=int, default=0,
+                    help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 10)")
+    ap.add_argument("--unfreeze-lr", type=float, default=0.005,
+                    help="解冻后精调阶段的学习率 lr0 (文档: 低学习率精调)")
+    ap.add_argument("--out", default=None, help="输出权重文件名 (默认 weights/<variant>.pt)")
+    args = ap.parse_args()
+
+    out_stem = os.path.splitext(os.path.basename(args.out))[0] if args.out else args.variant
+    train_name = f"_{out_stem}_train"
+    freeze_name = f"_{out_stem}_freeze"
+
+    print("=" * 70)
+    print(f"训练变体: {args.variant}   batch={args.batch}  epochs={args.epochs}  "
+          f"freeze_epochs={args.freeze_epochs}  device={args.device}")
+    print("=" * 70)
+
+    # 阶段1: 冻结 backbone, 只训练检测头 (文档: 先冻结主干训练检测头)
+    if args.freeze_epochs > 0:
+        print(f"\n[阶段1] 冻结 backbone, 训练检测头 {args.freeze_epochs} 轮 ...")
+        overrides1 = build_overrides(args, freeze_name, PRETRAINED,
+                                     args.freeze_epochs, freeze=10, lr0=0.01)
+        run_phase(overrides1, args, args.variant)
+        phase2_model = os.path.join(WEIGHTS_DIR, freeze_name, "weights", "best.pt")
+        phase2_epochs = args.epochs - args.freeze_epochs
+        phase2_lr0 = args.unfreeze_lr  # 文档: 解冻后低学习率精调
+    else:
+        phase2_model = PRETRAINED
+        phase2_epochs = args.epochs
+        phase2_lr0 = 0.01
+
+    # 阶段2: 解冻全网, 低学习率精调 (文档: 再解冻全网低学习率精调)
+    print(f"\n[阶段2] 解冻全网, 低学习率精调 {phase2_epochs} 轮 (lr0={phase2_lr0}) ...")
+    overrides2 = build_overrides(args, train_name, phase2_model,
+                                 phase2_epochs, freeze=None, lr0=phase2_lr0)
+    run_phase(overrides2, args, args.variant)
+
     # 统一保存 best 权重
-    out_dir = os.path.join(WEIGHTS_DIR, f"_{args.variant}_train")
+    out_dir = os.path.join(WEIGHTS_DIR, train_name)
     best = os.path.join(out_dir, "weights", "best.pt")
-    dst = os.path.join(WEIGHTS_DIR, f"{args.variant}.pt")
+    dst = os.path.join(WEIGHTS_DIR, args.out) if args.out else os.path.join(WEIGHTS_DIR, f"{args.variant}.pt")
     shutil.copy2(best, dst)
     shutil.rmtree(out_dir, ignore_errors=True)
+    if args.freeze_epochs > 0:
+        shutil.rmtree(os.path.join(WEIGHTS_DIR, freeze_name), ignore_errors=True)
     print(f"✅ 训练完成, 权重已保存: {dst}")
 
     verify(dst)

@@ -24,3 +24,6 @@ cell/docker/
 cell/weights/
 cell/static/
 cell/uploads/
+cell/leagcy/
+cell/results/
+cell/logs/

@@ -14,7 +14,7 @@ import cv2  # noqa: E402
 from ultralytics import YOLO  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WEIGHTS = os.path.join(HERE, "weights", "cbam.pt")
+WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 
 model = YOLO(WEIGHTS)
 cap = cv2.VideoCapture(0)

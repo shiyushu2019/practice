@@ -17,27 +17,46 @@ class FocalLoss(nn.Module):
     论文: https://arxiv.org/abs/1708.02002
     """
 
-    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
+    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean', normalize=False):
         super(FocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
+        self.normalize = normalize
 
     def forward(self, pred, target):
         """
         Args:
             pred: 预测值 [N, C] 或 [N, C, ...]
-            target: 目标值 [N, ...]
+            target: 目标值 [N, ...] (允许 soft label, 来自 TAL 任务对齐分配)
         """
         # 计算交叉熵
         ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
 
-        # 计算 p_t
-        pt = torch.exp(-ce_loss)
+        # 计算 p_t: 模型对"真实类别"赋予的概率。
+        # 注意: 不能用 pt = exp(-ce_loss) 计算, 那只对二值标签等价;
+        # YOLO 的 TAL 分配产生的是 soft label (IoU 加权, 取值 [0,1]),
+        # 用线性插值 p_t = t*p + (1-t)*(1-p) 才能正确泛化。
+        p = torch.sigmoid(pred)
+        p_t = target * p + (1 - target) * (1 - p)
 
-        # 计算 Focal Loss
-        focal_weight = self.alpha * (1 - pt) ** self.gamma
-        loss = focal_weight * ce_loss
+        # 类别平衡因子 alpha_t: 正样本用 alpha, 负样本用 1-alpha
+        # (标准 Focal Loss, 论文 Eq.4; 统一 alpha 会整体压低负样本权重导致精度下降)
+        alpha_t = self.alpha * target + (1 - self.alpha) * (1 - target)
+
+        # 计算 Focal Loss: FL = -alpha_t * (1 - p_t)^gamma * log(p_t)
+        modulating = (1 - p_t) ** self.gamma
+        loss = alpha_t * modulating * ce_loss
+
+        # 可选: 保持与 BCE 相近的量纲。gamma 较大时 focal loss 的数值会远小于 BCE,
+        # 导致 cls loss 相对 box/dfl loss 被削弱、分类头欠拟合。这里把 focal loss
+        # 的总量重缩放到与 BCE 相同, 既保留 focal 的相对加权 (压低易分、抬高难分),
+        # 又不会让 cls loss 的绝对尺度崩溃。用 BCE/focal 的总量比值做标量缩放,
+        # 该比值随训练稳定, 不会像"除以平均调制因子"那样在模型变好后发散。
+        if self.normalize:
+            total_ce = ce_loss.detach().sum()
+            total_focal = loss.detach().sum()
+            loss = loss * (total_ce / (total_focal + 1e-8))
 
         if self.reduction == 'mean':
             return loss.mean()
@@ -53,11 +72,11 @@ class FocalV8DetectionLoss(v8DetectionLoss):
     其余 (box / dfl / 任务对齐分配) 逻辑完全沿用父类。
     """
 
-    def __init__(self, model, gamma: float = 2.0, alpha: float = 0.25):
+    def __init__(self, model, gamma: float = 2.0, alpha: float = 0.25, normalize: bool = False):
         super().__init__(model)
         # reduction='none': 与 v8DetectionLoss 中 self.bce 的调用约定一致,
         # 由父类负责最终的 .sum() / target_scores_sum 归一化。
-        self.bce = FocalLoss(alpha=alpha, gamma=gamma, reduction='none')
+        self.bce = FocalLoss(alpha=alpha, gamma=gamma, reduction='none', normalize=normalize)
 
 
 class FocalDetectionModel(DetectionModel):
@@ -67,11 +86,13 @@ class FocalDetectionModel(DetectionModel):
     criterion 仍然在首次 loss() 调用时惰性创建, 设备与模型一致。
     """
 
-    def __init__(self, cfg="yolo11n.yaml", ch=3, nc=None, verbose=True,
-                 gamma: float = 2.0, alpha: float = 0.25):
+    def __init__(self, cfg="yolov8n.yaml", ch=3, nc=None, verbose=True,
+                 gamma: float = 2.0, alpha: float = 0.25, normalize: bool = False):
         super().__init__(cfg, ch=ch, nc=nc, verbose=verbose)
         self.focal_gamma = gamma
         self.focal_alpha = alpha
+        self.focal_normalize = normalize
 
     def init_criterion(self):
-        return FocalV8DetectionLoss(self, gamma=self.focal_gamma, alpha=self.focal_alpha)
+        return FocalV8DetectionLoss(self, gamma=self.focal_gamma, alpha=self.focal_alpha,
+                                    normalize=self.focal_normalize)

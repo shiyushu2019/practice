@@ -15,7 +15,7 @@ from ultralytics import YOLO
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WEIGHTS = os.path.join(HERE, "weights", "cbam.pt")
+WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 
 app = Flask(__name__)
 os.makedirs("uploads", exist_ok=True)

@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ultralytics import YOLO  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cbam.pt")
+DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
 
@@ -53,7 +53,7 @@ def main():
         print(f"{os.path.basename(img)}: 共 {len(boxes)} 个细胞 -> {counts}")
 
         if args.save:
-            out_dir = "results"
+            out_dir = os.path.join(HERE, "results")
             os.makedirs(out_dir, exist_ok=True)
             out = os.path.join(out_dir, os.path.basename(img))
             r.save(filename=out)

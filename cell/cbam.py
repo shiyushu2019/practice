@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 
+from ultralytics.nn.modules import Conv
+
+
 class ChannelAttention(nn.Module):
     """通道注意力模块"""
     def __init__(self, in_channels, reduction=16):
@@ -48,3 +51,21 @@ class CBAM(nn.Module):
         x = self.channel_attention(x)
         x = self.spatial_attention(x)
         return x
+
+
+class CBAMConv(Conv):
+    """在 ConvModule (卷积 + BN + SiLU) 中嵌入 CBAM 注意力模块。
+
+    对应文档: "在 Backbone 的 ConvModule 中嵌入 CBAM 注意力模块"。
+    继承 ultralytics 的 Conv, 参数命名不变 (model.N.conv.weight),
+    因此 checkpoint 加载 / 模型融合 (fuse) 均兼容。
+    """
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True, reduction=16):
+        super().__init__(c1, c2, k, s, p, g, d, act)
+        self.cbam = CBAM(c2, reduction=reduction)
+
+    def forward(self, x):
+        return self.cbam(self.act(self.bn(self.conv(x))))
+
+    def forward_fuse(self, x):
+        return self.cbam(self.act(self.conv(x)))
