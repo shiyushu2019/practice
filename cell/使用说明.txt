@@ -7,3 +7,20 @@ CLI 启动：
 
 参数：--host 监听地址（默认 0.0.0.0）、--port 端口（默认 5000）、--device GPU 编号（0-7，默认自动选空闲显存最多的卡）、--conf 置信度阈值（默认 0.25）。
 启动后浏览器打开 http://127.0.0.1:5000 即可使用。
+
+
+## 训练 / 推理 / 验证 (train.py / inf.py / eval.py)
+
+Python 环境：/data1/conda_envs/jssnu005/sys/practice/bin/python（在 cell 目录下执行）
+
+# 训练：--variant 可选 baseline/cbam/cf，其余超参都有默认值（不传即文档配置）
+python train.py --variant cf --device 7 --epochs 100 --batch 32
+python train.py --variant cf --device 7 --epochs 200 --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 1.0 --patience 100
+
+# 推理：单图或目录，--weights 指定权重
+python inf.py --source BCCD_Dataset/test/images --weights weights/cf.pt --device 7 --conf 0.25 --save
+python inf.py --source a.jpg --weights weights/cf.pt --imgsz 640 --iou 0.7 --max-det 300 --save-txt --save-conf
+
+# 验证：--split test/val，--weights 逗号分隔（不传则用内置 baseline/cbam/cf/cf_norm）
+python eval.py --split test --device 7
+python eval.py --split test --device 7 --weights weights/cf.pt,weights/cbam.pt --imgsz 640 --iou 0.7

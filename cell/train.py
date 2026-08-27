@@ -7,6 +7,7 @@
     python train.py --variant cf --batch 32 --epochs 100
     python train.py --variant cf --freeze-epochs 10   # 文档迁移学习流程: 先冻结后解冻
     python train.py --variant cf --normalize           # Focal Loss 按 BCE 总量归一化 (实验性)
+    python train.py --variant cf --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 0 --device 7
 
 训练完成后 best 权重统一保存到 weights/<variant>.pt。
 
@@ -112,36 +113,36 @@ def verify(path):
 
 
 def build_overrides(args, name, model, epochs, freeze, lr0):
-    """按文档技术路线构造 ultralytics 训练配置。"""
+    """按文档技术路线构造 ultralytics 训练配置 (超参数均可由命令行覆盖)。"""
     return {
         "model": model,
-        "data": os.path.join(HERE, "bccd.yaml"),
+        "data": args.data,
         "epochs": epochs,
         "batch": args.batch,
-        "imgsz": 640,
-        "optimizer": "SGD",
+        "imgsz": args.imgsz,
+        "optimizer": args.optimizer,
         "lr0": lr0,
-        "lrf": 0.01,
-        "weight_decay": 0.0005,
-        "warmup_epochs": 3,
-        "cos_lr": True,
-        "mosaic": 1.0,
-        "degrees": 180,
-        "flipud": 0.5,
-        "fliplr": 0.5,
-        "hsv_h": 0.015,
-        "hsv_s": 0.7,
-        "hsv_v": 0.4,
-        "patience": 100,
-        "seed": 0,
-        "deterministic": True,
-        "amp": True,
-        "close_mosaic": 10,
+        "lrf": args.lrf,
+        "weight_decay": args.weight_decay,
+        "warmup_epochs": args.warmup_epochs,
+        "cos_lr": not args.no_cos_lr,
+        "mosaic": args.mosaic,
+        "degrees": args.degrees,
+        "flipud": args.flipud,
+        "fliplr": args.fliplr,
+        "hsv_h": args.hsv_h,
+        "hsv_s": args.hsv_s,
+        "hsv_v": args.hsv_v,
+        "patience": args.patience,
+        "seed": args.seed,
+        "deterministic": not args.no_deterministic,
+        "amp": not args.no_amp,
+        "close_mosaic": args.close_mosaic,
         "device": args.device,
         "project": WEIGHTS_DIR,
         "name": name,
         "exist_ok": True,
-        "plots": True,
+        "plots": not args.no_plots,
         "freeze": freeze,
     }
 
@@ -171,6 +172,27 @@ def main():
     ap.add_argument("--unfreeze-lr", type=float, default=0.005,
                     help="解冻后精调阶段的学习率 lr0 (文档: 低学习率精调)")
     ap.add_argument("--out", default=None, help="输出权重文件名 (默认 weights/<variant>.pt)")
+    ap.add_argument("--data", default=os.path.join(HERE, "bccd.yaml"), help="数据集 yaml 路径")
+    ap.add_argument("--imgsz", type=int, default=640, help="输入图像尺寸")
+    ap.add_argument("--optimizer", default="SGD", help="优化器 (SGD/Adam/AdamW/... )")
+    ap.add_argument("--lr0", type=float, default=0.01, help="初始学习率")
+    ap.add_argument("--lrf", type=float, default=0.01, help="最终学习率 (lr0 的倍数)")
+    ap.add_argument("--weight-decay", type=float, default=0.0005, help="权重衰减")
+    ap.add_argument("--warmup-epochs", type=float, default=3, help="warmup 轮数")
+    ap.add_argument("--no-cos-lr", action="store_true", help="关闭余弦学习率退火")
+    ap.add_argument("--mosaic", type=float, default=1.0, help="Mosaic 增强概率 (0 关闭)")
+    ap.add_argument("--close-mosaic", type=int, default=10, help="最后 N 轮关闭 Mosaic")
+    ap.add_argument("--degrees", type=float, default=180, help="随机旋转角度范围")
+    ap.add_argument("--flipud", type=float, default=0.5, help="上下翻转概率")
+    ap.add_argument("--fliplr", type=float, default=0.5, help="左右翻转概率")
+    ap.add_argument("--hsv-h", type=float, default=0.015, help="HSV-H 扰动")
+    ap.add_argument("--hsv-s", type=float, default=0.7, help="HSV-S 扰动")
+    ap.add_argument("--hsv-v", type=float, default=0.4, help="HSV-V 扰动")
+    ap.add_argument("--patience", type=int, default=100, help="早停耐心轮数")
+    ap.add_argument("--seed", type=int, default=0, help="随机种子")
+    ap.add_argument("--no-deterministic", action="store_true", help="关闭确定性训练")
+    ap.add_argument("--no-amp", action="store_true", help="关闭混合精度 (AMP)")
+    ap.add_argument("--no-plots", action="store_true", help="不保存训练曲线图")
     args = ap.parse_args()
 
     out_stem = os.path.splitext(os.path.basename(args.out))[0] if args.out else args.variant
@@ -186,7 +208,7 @@ def main():
     if args.freeze_epochs > 0:
         print(f"\n[阶段1] 冻结 backbone, 训练检测头 {args.freeze_epochs} 轮 ...")
         overrides1 = build_overrides(args, freeze_name, PRETRAINED,
-                                     args.freeze_epochs, freeze=10, lr0=0.01)
+                                     args.freeze_epochs, freeze=10, lr0=args.lr0)
         run_phase(overrides1, args, args.variant)
         phase2_model = os.path.join(WEIGHTS_DIR, freeze_name, "weights", "best.pt")
         phase2_epochs = args.epochs - args.freeze_epochs
@@ -194,7 +216,7 @@ def main():
     else:
         phase2_model = PRETRAINED
         phase2_epochs = args.epochs
-        phase2_lr0 = 0.01
+        phase2_lr0 = args.lr0
 
     # 阶段2: 解冻全网, 低学习率精调 (文档: 再解冻全网低学习率精调)
     print(f"\n[阶段2] 解冻全网, 低学习率精调 {phase2_epochs} 轮 (lr0={phase2_lr0}) ...")
@@ -215,7 +237,7 @@ def main():
     verify(dst)
 
     # 在测试集上评估
-    metrics = YOLO(dst).val(data="bccd.yaml", split="test", device=args.device,
+    metrics = YOLO(dst).val(data=args.data, split="test", device=args.device,
                            plots=False, save=False, verbose=False)
     print(f"  mAP@0.5={metrics.box.map50:.4f}  mAP@0.5:0.95={metrics.box.map:.4f}  "
           f"P={metrics.box.mp:.4f}  R={metrics.box.mr:.4f}")

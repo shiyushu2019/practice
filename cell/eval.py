@@ -31,15 +31,30 @@ def main():
     ap = argparse.ArgumentParser(description="统一验证脚本")
     ap.add_argument("--split", default="test", choices=["test", "val"])
     ap.add_argument("--device", default="4")
+    ap.add_argument("--data", default=os.path.join(HERE, "bccd.yaml"), help="数据集 yaml 路径")
+    ap.add_argument("--imgsz", type=int, default=640, help="验证输入尺寸")
+    ap.add_argument("--iou", type=float, default=0.7, help="验证 NMS 的 IoU 阈值")
+    ap.add_argument("--weights", default=None,
+                    help="逗号分隔的权重路径; 不指定则评估内置 MODELS")
     args = ap.parse_args()
 
+    if args.weights:
+        models = []
+        for p in args.weights.split(","):
+            p = p.strip()
+            if p:
+                models.append((os.path.basename(p), p))
+    else:
+        models = list(MODELS.items())
+
     print(f"评估集: {args.split}, 设备: GPU {args.device}\n")
-    for name, path in MODELS.items():
+    for name, path in models:
         if not os.path.exists(path):
             print(f"⚠️  跳过 {name}: 找不到 {path}")
             continue
         m = YOLO(path)
-        r = m.val(data=os.path.join(HERE, "bccd.yaml"), split=args.split, device=args.device,
+        r = m.val(data=args.data, split=args.split, device=args.device,
+                  imgsz=args.imgsz, iou=args.iou,
                   plots=False, save=False, verbose=False)
         b = r.box
         print(f"[{name:<9}] mAP@0.5={b.map50:.4f}  mAP@0.5:0.95={b.map:.4f}  "
