@@ -1,144 +1,279 @@
-"""血细胞检测 Web UI (Flask)。
+# -*- coding: utf-8 -*-
+"""CF-YOLOv8 血细胞智能检测系统 (Flask Dashboard)。
+
+参照 web_app_example 的架构与 UI 风格重写。
 
 用法:
     python app.py
-    然后浏览器访问 http://127.0.0.1:5000
+    浏览器访问 http://127.0.0.1:5000
 """
 import os
-import uuid
 import base64
+import threading
+import time
+import shutil
+import uuid
+import tempfile
 
-from flask import Flask, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_file
 
-from ultralytics import YOLO
-
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+from core.cell_detector import CellDetector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 
-app = Flask(__name__)
-os.makedirs("uploads", exist_ok=True)
-os.makedirs("static/results", exist_ok=True)
+app = Flask(
+    __name__,
+    template_folder=os.path.join(HERE, "templates"),
+    static_folder=os.path.join(HERE, "static"),
+)
+app.secret_key = 'cell-dashboard-secret-key-2026'
 
-print("🩸 加载模型:", WEIGHTS)
-model = YOLO(WEIGHTS)
-print("✅ 加载成功！")
+UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "cell_uploads")
+CACHE_DIR = os.path.join(tempfile.gettempdir(), "cell_privacy_cache")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+if os.path.exists(CACHE_DIR):
+    try:
+        shutil.rmtree(CACHE_DIR)
+    except Exception as e:
+        print(f"清理沙箱失败: {e}")
+os.makedirs(CACHE_DIR, exist_ok=True)
 
-HTML = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>血细胞检测</title>
-    <style>
-        body { font-family: Arial; text-align: center; padding: 50px; background: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        h1 { color: #333; }
-        .upload-btn { display: inline-block; padding: 15px 40px; background: #667eea; color: white; border-radius: 10px; cursor: pointer; margin: 20px 0; border: none; font-size: 16px; }
-        .upload-btn:hover { background: #5a67d8; }
-        #file-input { display: none; }
-        .result { margin-top: 30px; display: none; }
-        .result img { max-width: 100%; border-radius: 10px; }
-        .stats { display: flex; justify-content: center; gap: 30px; margin: 20px 0; }
-        .stat { padding: 10px 20px; background: #f0f0f0; border-radius: 10px; }
-        .stat .num { font-size: 24px; font-weight: bold; }
-        .stat .label { font-size: 14px; color: #888; }
-        .stat.rbc .num { color: #e74c3c; }
-        .stat.wbc .num { color: #3498db; }
-        .stat.platelets .num { color: #2ecc71; }
-        .loading { display: none; color: #888; padding: 20px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🩸 CF-YOLOv8 血细胞检测</h1>
-        <p>上传血细胞图片，自动识别红细胞、白细胞、血小板</p>
-        <button class="upload-btn" onclick="document.getElementById('file-input').click()">📤 选择图片</button>
-        <input type="file" id="file-input" accept="image/*">
-        <div class="loading" id="loading">⏳ 检测中...</div>
-        <div class="result" id="result">
-            <img id="result-img" src="">
-            <div class="stats">
-                <div class="stat rbc"><div class="num" id="rbc-num">0</div><div class="label">RBC 红细胞</div></div>
-                <div class="stat wbc"><div class="num" id="wbc-num">0</div><div class="label">WBC 白细胞</div></div>
-                <div class="stat platelets"><div class="num" id="plt-num">0</div><div class="label">Platelets 血小板</div></div>
-            </div>
-            <p id="detail"></p>
-            <button onclick="location.reload()">🔄 继续检测</button>
-        </div>
-    </div>
-    <script>
-        document.getElementById('file-input').addEventListener('change', function(e) {
-            var file = this.files[0];
-            if (!file) return;
-            var formData = new FormData();
-            formData.append('file', file);
-            document.getElementById('loading').style.display = 'block';
-            document.getElementById('result').style.display = 'none';
-            fetch('/detect', { method: 'POST', body: formData })
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('loading').style.display = 'none';
-                    if (d.error) { alert(d.error); return; }
-                    document.getElementById('result-img').src = 'data:image/jpeg;base64,' + d.image;
-                    document.getElementById('rbc-num').textContent = d.counts.RBC;
-                    document.getElementById('wbc-num').textContent = d.counts.WBC;
-                    document.getElementById('plt-num').textContent = d.counts.Platelets;
-                    document.getElementById('detail').textContent = '共检测到 ' + d.total + ' 个细胞';
-                    document.getElementById('result').style.display = 'block';
-                })
-                .catch(e => { alert('检测失败: ' + e.message); document.getElementById('loading').style.display = 'none'; });
-        });
-    </script>
-</body>
-</html>
-'''
+history_cache = []
+cache_lock = threading.Lock()
+
+print("Initializing CF-YOLOv8 Detector...")
+detector = CellDetector()
+detector.load_model()
+model_info = detector.get_model_info()
+print("All detection models loaded:", model_info)
+
+task_state = {
+    "running": False,
+    "stop_requested": False,
+    "files": [],
+    "current_idx": 0,
+    "stats": {
+        "success": 0, "fail": 0, "total": 0,
+        "total_cells": 0, "total_conf": 0.0, "avg_conf": 0.0,
+        "total_time": 0.0, "avg_time": 0.0,
+        "rbc": 0, "wbc": 0, "platelets": 0,
+    },
+    "latest_result": {},
+    "logs": [],
+}
+state_lock = threading.Lock()
+
+
+def process_image(filepath):
+    """对单张图像执行检测并写入历史缓存。"""
+    result = detector.detect({"image_path": filepath})
+    if result is None:
+        return None
+
+    record_id = str(uuid.uuid4())
+    orig_name = f"{record_id}_orig.jpg"
+    result_name = f"{record_id}_result.jpg"
+
+    with open(os.path.join(CACHE_DIR, orig_name), "wb") as f:
+        f.write(base64.b64decode(result["original_b64"]))
+    with open(os.path.join(CACHE_DIR, result_name), "wb") as f:
+        f.write(base64.b64decode(result["result_b64"]))
+
+    record = {
+        "id": record_id,
+        "filename": result["filename"],
+        "orig_url": f"/api/sandbox/image/{orig_name}",
+        "result_url": f"/api/sandbox/image/{result_name}",
+        "counts": result["counts"],
+        "total": result["total"],
+        "avg_conf": result["avg_conf"],
+        "report": result["report"],
+        "timestamp": time.strftime('%H:%M:%S'),
+    }
+
+    with cache_lock:
+        history_cache.insert(0, record)
+        if len(history_cache) > 100:
+            history_cache.pop()
+
+    result["record"] = record
+    return result
+
+
+def processing_loop():
+    global task_state
+    while True:
+        with state_lock:
+            if (not task_state["running"] or task_state["stop_requested"]
+                    or not (task_state["files"] and task_state["current_idx"] < len(task_state["files"]))):
+                task_state["running"] = False
+                break
+            filepath = task_state["files"][task_state["current_idx"]]
+            filename = os.path.basename(filepath)
+            task_state["stats"]["total"] = len(task_state["files"])
+
+        start_proc_time = time.time()
+        try:
+            result = process_image(filepath)
+            cost = time.time() - start_proc_time
+            with state_lock:
+                if result:
+                    task_state["stats"]["success"] += 1
+                    task_state["stats"]["total_cells"] += result["total"]
+                    task_state["stats"]["total_conf"] += result["avg_conf"]
+                    task_state["stats"]["avg_conf"] = task_state["stats"]["total_conf"] / task_state["stats"]["success"]
+                    task_state["stats"]["rbc"] += result["counts"]["RBC"]
+                    task_state["stats"]["wbc"] += result["counts"]["WBC"]
+                    task_state["stats"]["platelets"] += result["counts"]["Platelets"]
+                    task_state["latest_result"] = result
+                    task_state["logs"].append(
+                        f"[{time.strftime('%H:%M:%S')}] Success: {filename} ({cost:.2f}s, {result['total']} cells)"
+                    )
+                else:
+                    task_state["stats"]["fail"] += 1
+                    task_state["logs"].append(f"[{time.strftime('%H:%M:%S')}] Failed: {filename} cannot read")
+                task_state["stats"]["total_time"] += cost
+                task_state["stats"]["avg_time"] = (
+                    task_state["stats"]["total_time"] / (task_state["stats"]["success"] + task_state["stats"]["fail"])
+                )
+                task_state["current_idx"] += 1
+                if len(task_state["logs"]) > 100:
+                    task_state["logs"] = task_state["logs"][-100:]
+        except Exception as e:
+            with state_lock:
+                task_state["stats"]["fail"] += 1
+                task_state["logs"].append(f"[{time.strftime('%H:%M:%S')}] Error {filename}: {str(e)}")
+                task_state["current_idx"] += 1
+
+    with state_lock:
+        task_state["running"] = False
+        task_state["logs"].append(f"[{time.strftime('%H:%M:%S')}] Task finished")
 
 
 @app.route('/')
 def index():
-    return HTML
+    return render_template('dashboard.html')
 
 
-@app.route('/detect', methods=['POST'])
-def detect():
-    file = request.files['file']
-    if not file:
-        return jsonify({'error': '没有文件'})
-
-    filename = str(uuid.uuid4()) + '.jpg'
-    filepath = os.path.join('uploads', filename)
-    file.save(filepath)
-
-    results = model(filepath, conf=0.25)
-
-    counts = {'RBC': 0, 'WBC': 0, 'Platelets': 0}
-    for box in results[0].boxes:
-        cls = int(box.cls)
-        if cls == 0:
-            counts['RBC'] += 1
-        elif cls == 1:
-            counts['WBC'] += 1
-        elif cls == 2:
-            counts['Platelets'] += 1
-
-    result_path = os.path.join('static/results', filename)
-    results[0].save(filename=result_path)
-
-    with open(result_path, 'rb') as f:
-        img_data = base64.b64encode(f.read()).decode()
-
+@app.route('/api/model_info')
+def get_model_info():
     return jsonify({
-        'image': img_data,
-        'counts': counts,
-        'total': len(results[0].boxes),
+        "arch": model_info.get("arch"),
+        "classes": model_info.get("classes"),
+        "classes_cn": model_info.get("classes_cn"),
+        "weights": model_info.get("weights"),
+        "device": model_info.get("device"),
+        "conf": model_info.get("conf"),
     })
+
+
+@app.route('/api/dashboard/start', methods=['POST'])
+def start_task():
+    global task_state
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({"error": "No files uploaded"}), 400
+
+    filepaths = []
+    for f in files:
+        fpath = os.path.join(UPLOAD_DIR, uuid.uuid4().hex + "_" + f.filename.replace("/", "_"))
+        f.save(fpath)
+        filepaths.append(fpath)
+
+    with state_lock:
+        if task_state["running"]:
+            task_state["stop_requested"] = True
+        task_state.update({
+            "running": True,
+            "stop_requested": False,
+            "files": filepaths,
+            "current_idx": 0,
+            "stats": {
+                "success": 0, "fail": 0, "total": len(filepaths),
+                "total_cells": 0, "total_conf": 0.0, "avg_conf": 0.0,
+                "total_time": 0.0, "avg_time": 0.0,
+                "rbc": 0, "wbc": 0, "platelets": 0,
+            },
+            "latest_result": {},
+            "logs": [f"[{time.strftime('%H:%M:%S')}] Start processing {len(filepaths)} images"],
+        })
+        threading.Thread(target=processing_loop, daemon=True).start()
+    return jsonify({"status": "started", "total": len(filepaths)})
+
+
+@app.route('/api/dashboard/stop', methods=['POST'])
+def stop_task():
+    with state_lock:
+        task_state["stop_requested"] = True
+        task_state["logs"].append(f"[{time.strftime('%H:%M:%S')}] Stop requested")
+    return jsonify({"status": "stopping"})
+
+
+@app.route('/api/dashboard/status')
+def get_status():
+    with state_lock:
+        stats = task_state["stats"]
+        return jsonify({
+            "running": task_state["running"],
+            "progress": {"current": task_state["current_idx"], "total": stats["total"]},
+            "stats": {
+                "success": stats["success"],
+                "fail": stats["fail"],
+                "total": stats["total"],
+                "total_cells": stats["total_cells"],
+                "avg_conf": round(stats["avg_conf"], 4),
+                "avg_time": round(stats["avg_time"] * 1000, 1),
+                "rbc": stats["rbc"],
+                "wbc": stats["wbc"],
+                "platelets": stats["platelets"],
+            },
+            "latest_result": task_state["latest_result"] if task_state["latest_result"] else None,
+            "logs": task_state["logs"] if task_state["logs"] else [],
+        })
+
+
+@app.route('/api/sandbox/image/<filename>')
+def get_sandbox_image(filename):
+    safe_path = os.path.abspath(os.path.join(CACHE_DIR, filename))
+    if safe_path.startswith(os.path.abspath(CACHE_DIR)) and os.path.exists(safe_path):
+        return send_file(safe_path)
+    return jsonify({"error": "File burned"}), 404
+
+
+@app.route('/api/history', methods=['GET'])
+def get_history():
+    keyword = request.args.get('keyword', '').lower().strip()
+    with cache_lock:
+        if not keyword:
+            return jsonify(history_cache)
+
+        filtered = []
+        for item in history_cache:
+            fname = str(item.get('filename', '')).lower()
+            report = str(item.get('report', '')).lower()
+            time_str = str(item.get('timestamp', '')).lower()
+            total_str = str(item.get('total', ''))
+
+            if (keyword in fname) or (keyword in report) or (keyword in time_str) or (keyword in total_str):
+                filtered.append(item)
+
+        return jsonify(filtered)
+
+
+@app.route('/api/history/burn', methods=['POST'])
+def burn_history():
+    global history_cache
+    with cache_lock:
+        history_cache.clear()
+        if os.path.exists(CACHE_DIR):
+            shutil.rmtree(CACHE_DIR)
+        os.makedirs(CACHE_DIR, exist_ok=True)
+    return jsonify({"status": "burned", "message": "Memory and disk traces safely erased."})
 
 
 if __name__ == '__main__':
     print("=" * 40)
-    print("🩸 CF-YOLOv8 血细胞检测系统")
+    print("🩸 CF-YOLOv8 血细胞智能检测系统")
     print("🌐 访问: http://127.0.0.1:5000")
     print("=" * 40)
-    app.run(debug=False, host='127.0.0.1', port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=False)
