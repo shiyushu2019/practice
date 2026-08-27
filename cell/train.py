@@ -159,8 +159,8 @@ def run_phase(overrides, args, variant):
 
 def main():
     ap = argparse.ArgumentParser(description="统一训练脚本 (CBAM/Focal 按文档实现)")
-    ap.add_argument("--variant", default="baseline", choices=["baseline", "cbam", "cf"])
-    ap.add_argument("--device", default="4")
+    ap.add_argument("--variant", default="cf", choices=["baseline", "cbam", "cf"])
+    ap.add_argument("--device", default="7")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--gamma", type=float, default=2.0)

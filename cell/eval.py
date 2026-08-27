@@ -30,7 +30,7 @@ NAMES = ["RBC", "WBC", "Platelets"]
 def main():
     ap = argparse.ArgumentParser(description="统一验证脚本")
     ap.add_argument("--split", default="test", choices=["test", "val"])
-    ap.add_argument("--device", default="4")
+    ap.add_argument("--device", default="7")
     ap.add_argument("--data", default=os.path.join(HERE, "bccd.yaml"), help="数据集 yaml 路径")
     ap.add_argument("--imgsz", type=int, default=640, help="验证输入尺寸")
     ap.add_argument("--iou", type=float, default=0.7, help="验证 NMS 的 IoU 阈值")

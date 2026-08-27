@@ -29,7 +29,7 @@ def main():
     ap.add_argument("--imgsz", type=int, default=640, help="推理输入尺寸")
     ap.add_argument("--iou", type=float, default=0.7, help="NMS IoU 阈值")
     ap.add_argument("--max-det", type=int, default=300, help="每张图最大检测框数")
-    ap.add_argument("--device", default="4")
+    ap.add_argument("--device", default="7")
     ap.add_argument("--save", action="store_true", help="保存绘制了检测框的结果图")
     ap.add_argument("--save-txt", action="store_true", help="保存 YOLO 标签 txt")
     ap.add_argument("--save-conf", action="store_true", help="标签 txt 附带置信度")

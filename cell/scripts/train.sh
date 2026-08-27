@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+python train.py \
+  --variant cf \
+  --device 7 \
+  --epochs 100 \
+  --batch 32 \
+  --gamma 2.0 \
+  --alpha 0.25 \
+  --freeze-epochs 0 \
+  --unfreeze-lr 0.005 \
+  --data bccd.yaml \
+  --imgsz 640 \
+  --optimizer SGD \
+  --lr0 0.01 \
+  --lrf 0.01 \
+  --weight-decay 0.0005 \
+  --warmup-epochs 3 \
+  --mosaic 1.0 \
+  --close-mosaic 10 \
+  --degrees 180 \
+  --flipud 0.5 \
+  --fliplr 0.5 \
+  --hsv-h 0.015 \
+  --hsv-s 0.7 \
+  --hsv-v 0.4 \
+  --patience 100 \
+  --seed 0
