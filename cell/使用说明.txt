@@ -1,0 +1,9 @@
+## Web 检测系统 (app.py)
+
+CLI 启动：
+  /data1/conda_envs/jssnu005/sys/cell/bin/python app.py                       # 默认端口 5000
+  /data1/conda_envs/jssnu005/sys/cell/bin/python app.py --port 8080           # 指定端口
+  /data1/conda_envs/jssnu005/sys/cell/bin/python app.py --device 6 --conf 0.3 # 指定 GPU 与置信度阈值
+
+参数：--host 监听地址（默认 0.0.0.0）、--port 端口（默认 5000）、--device GPU 编号（0-7，默认自动选空闲显存最多的卡）、--conf 置信度阈值（默认 0.25）。
+启动后浏览器打开 http://127.0.0.1:5000 即可使用。

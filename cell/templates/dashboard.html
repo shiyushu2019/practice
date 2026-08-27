@@ -21,17 +21,28 @@
         extend: {
           fontFamily: { sans: ['"Plus Jakarta Sans"', 'sans-serif'] },
           colors: {
-            brand: { pink: '#D73565', bg: '#EAEBEB', card: '#FFFFFF', dark: '#1A1D20', gray: '#F5F6F8', textMuted: '#8B929E' }
+            brand: {
+              primary: '#1E6FD9',
+              primaryDark: '#1557AC',
+              bg: '#EEF1F6',
+              card: '#FFFFFF',
+              dark: '#0F172A',
+              gray: '#F5F7FA',
+              muted: '#64748B'
+            }
           },
-          boxShadow: { 'soft': '0 12px 36px -12px rgba(0, 0, 0, 0.05)', 'pink-glow': '0 10px 25px -5px rgba(215, 53, 101, 0.3)' },
-          borderRadius: { '3xl': '1.5rem', '4xl': '2rem' }
+          boxShadow: {
+            'soft': '0 8px 24px -10px rgba(15, 23, 42, 0.08)',
+            'glow': '0 8px 20px -6px rgba(30, 111, 217, 0.35)'
+          },
+          borderRadius: { '3xl': '1.25rem', '4xl': '1.75rem' }
         }
       }
     }
   </script>
 
   <style>
-    body { background-color: #EAEBEB; color: #1A1D20; }
+    body { background-color: #EEF1F6; color: #0F172A; }
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
@@ -41,44 +52,53 @@
     .stagger-3 { animation: slideUpFade 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
     @keyframes slideUpFade { 0% { opacity: 0; transform: translateY(30px); } 100% { opacity: 1; transform: translateY(0); } }
     #model-3d-wrapper { width: 100%; height: 420px; background: transparent; border-radius: inherit; overflow: hidden; }
-    .label-3d { color: #1A1D20; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; font-weight: 700; padding: 5px 12px; background: rgba(255, 255, 255, 0.9); border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 20px; pointer-events: none; white-space: nowrap; backdrop-filter: blur(8px); box-shadow: 0 4px 10px rgba(0,0,0,0.04); }
-    #tooltip-3d { position: absolute; display: none; background: rgba(26, 29, 32, 0.95); color: #F5F6F8; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); pointer-events: none; z-index: 1000; font-size: 12px; min-width: 160px; line-height: 1.5; backdrop-filter: blur(10px); }
+    .label-3d { color: #0F172A; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; font-weight: 700; padding: 5px 12px; background: rgba(255, 255, 255, 0.92); border: 1px solid rgba(255, 255, 255, 0.6); border-radius: 20px; pointer-events: none; white-space: nowrap; backdrop-filter: blur(8px); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+    #tooltip-3d { position: absolute; display: none; background: rgba(15, 23, 42, 0.96); color: #F5F7FA; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); pointer-events: none; z-index: 1000; font-size: 12px; min-width: 160px; line-height: 1.5; backdrop-filter: blur(10px); }
     #records-drawer { transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); z-index: 100; width: 28rem; }
     #drawer-overlay { transition: opacity 0.4s ease; pointer-events: none; }
     .drawer-open #records-drawer { transform: translateX(0); }
     .drawer-open #drawer-overlay { opacity: 1; pointer-events: auto; }
     #report-text { white-space: pre-wrap; }
-    #report-text::after { content: '|'; animation: blink 1s step-end infinite; color: #D73565; margin-left: 2px; }
+    #report-text::after { content: '|'; animation: blink 1s step-end infinite; color: #1E6FD9; margin-left: 2px; }
     @keyframes blink { 50% { opacity: 0; } }
     .cell-dot { width: 10px; height: 10px; border-radius: 9999px; }
+    #settings-modal { transition: opacity 0.25s ease; }
   </style>
 </head>
 <body class="min-h-screen flex overflow-hidden font-sans">
 
-  <aside class="w-20 bg-brand-bg flex-shrink-0 flex flex-col items-center py-8 border-r border-gray-200/50 relative z-[110] hidden md:flex">
-    <div class="w-10 h-10 bg-brand-dark rounded-full flex items-center justify-center text-white font-extrabold text-lg mb-10 shadow-lg">CF</div>
-    <nav class="flex flex-col gap-6">
-      <button class="p-3 bg-white rounded-2xl text-brand-pink shadow-sm transition-transform hover:scale-110"><i data-lucide="layout-dashboard" class="w-5 h-5 inline-block"></i></button>
-      <button class="p-3 text-gray-400 hover:text-brand-dark transition-colors"><i data-lucide="microscope" class="w-5 h-5 inline-block"></i></button>
-      <button id="open-drawer-btn" class="p-3 text-gray-400 hover:text-brand-dark transition-all hover:bg-white hover:rounded-2xl hover:shadow-sm">
-        <i data-lucide="database" class="w-5 h-5 inline-block"></i>
+  <aside class="w-24 bg-brand-bg flex-shrink-0 flex flex-col items-center py-8 border-r border-gray-200/50 relative z-[110] hidden md:flex">
+    <div class="w-11 h-11 bg-brand-primary rounded-2xl flex items-center justify-center text-white shadow-md mb-10">
+      <i data-lucide="cross" class="w-6 h-6 inline-block"></i>
+    </div>
+    <nav class="flex flex-col gap-3 w-full px-3">
+      <button id="nav-dashboard" class="nav-btn bg-white text-brand-primary shadow-sm flex flex-col items-center gap-1 py-3 rounded-2xl transition-colors">
+        <i data-lucide="layout-dashboard" class="w-5 h-5 inline-block"></i><span class="text-[10px] font-bold">概览</span>
       </button>
-      <button class="p-3 text-gray-400 hover:text-brand-dark transition-colors"><i data-lucide="settings" class="w-5 h-5 inline-block"></i></button>
+      <button id="nav-detect" class="nav-btn text-gray-400 hover:text-brand-primary flex flex-col items-center gap-1 py-3 rounded-2xl transition-colors">
+        <i data-lucide="microscope" class="w-5 h-5 inline-block"></i><span class="text-[10px] font-bold">检测</span>
+      </button>
+      <button id="open-drawer-btn" class="nav-btn text-gray-400 hover:text-brand-primary flex flex-col items-center gap-1 py-3 rounded-2xl transition-colors">
+        <i data-lucide="database" class="w-5 h-5 inline-block"></i><span class="text-[10px] font-bold">记录</span>
+      </button>
+      <button id="nav-settings" class="nav-btn text-gray-400 hover:text-brand-primary flex flex-col items-center gap-1 py-3 rounded-2xl transition-colors">
+        <i data-lucide="settings" class="w-5 h-5 inline-block"></i><span class="text-[10px] font-bold">设置</span>
+      </button>
     </nav>
   </aside>
 
   <div id="drawer-overlay" class="fixed inset-0 bg-black/10 backdrop-blur-sm opacity-0 z-[90]"></div>
   <div id="records-drawer" class="fixed top-0 bottom-0 right-0 bg-white shadow-2xl translate-x-full border-l border-gray-100 flex flex-col">
-    <div class="p-6 border-b border-gray-50 flex items-center justify-between bg-red-50/20">
+    <div class="p-6 border-b border-gray-100 flex items-center justify-between">
       <div>
-        <h3 class="font-bold text-brand-dark">检测历史记录</h3>
-        <p class="text-[10px] font-bold text-red-500 mt-1 uppercase tracking-wider">
-          <i data-lucide="shield-alert" class="w-3 h-3 inline-block"></i> 物理沙箱阅后即焚
+        <h3 class="font-bold text-brand-dark">检测记录</h3>
+        <p class="text-[10px] font-bold text-brand-muted mt-1 uppercase tracking-wider">
+          <i data-lucide="clock" class="w-3 h-3 inline-block"></i> 记录保存在当前会话中
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <button id="burn-btn" class="flex items-center gap-1.5 px-3 py-1.5 bg-brand-pink text-white hover:bg-[#b02951] rounded-xl transition-all shadow-pink-glow font-bold text-xs" title="销毁当前内存与临时目录下的所有缓存数据">
-          <i data-lucide="flame" class="w-3.5 h-3.5 inline-block"></i> 销毁缓存
+        <button id="clear-history-btn" class="flex items-center gap-1.5 px-3 py-1.5 bg-brand-gray text-brand-dark hover:bg-gray-200 rounded-xl transition-all font-bold text-xs" title="清空当前会话中的所有检测记录">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5 inline-block"></i> 清空记录
         </button>
         <button id="close-drawer-btn" class="p-2 hover:bg-gray-100 rounded-xl transition-colors">
           <i data-lucide="x" class="w-5 h-5 text-gray-400 inline-block"></i>
@@ -88,7 +108,7 @@
 
     <div class="flex-1 flex flex-col overflow-hidden">
       <div class="p-4 flex-shrink-0">
-        <div class="flex items-center bg-brand-gray px-4 py-2.5 rounded-2xl border border-gray-100 focus-within:border-brand-pink/50 transition-colors">
+        <div class="flex items-center bg-brand-gray px-4 py-2.5 rounded-2xl border border-gray-100 focus-within:border-brand-primary/50 transition-colors">
           <i data-lucide="search" class="w-4 h-4 text-gray-400 mr-2 inline-block"></i>
           <input type="text" id="history-search" placeholder="搜索文件名或检测报告..." class="bg-transparent border-none outline-none text-sm w-full placeholder-gray-400">
         </div>
@@ -103,30 +123,30 @@
     <header class="h-20 px-8 flex items-center justify-between flex-shrink-0 z-10">
       <div>
         <h1 class="text-2xl font-extrabold text-brand-dark tracking-tight">🩸 CF-YOLOv8 血细胞智能检测系统</h1>
-        <p class="text-xs text-brand-textMuted mt-0.5 font-semibold">Blood Cell Detection Dashboard · CBAM + Focal Loss</p>
+        <p class="text-xs text-brand-muted mt-0.5 font-semibold">Blood Cell Detection Dashboard · CBAM + Focal Loss</p>
       </div>
-      <div class="flex items-center gap-4 bg-white px-4 py-2 rounded-full shadow-sm border border-gray-50">
+      <div class="flex items-center gap-4 bg-white px-4 py-2 rounded-full shadow-sm border border-gray-100">
         <span id="status-pulse" class="w-2 h-2 rounded-full bg-gray-300"></span>
         <span id="status-badge" class="text-sm font-bold text-brand-dark">就绪</span>
       </div>
     </header>
 
-    <main class="flex-1 overflow-y-auto px-8 pb-32 smooth-scroll">
+    <main id="main-scroll" class="flex-1 overflow-y-auto px-8 pb-32 smooth-scroll">
       <div class="max-w-[1400px] mx-auto space-y-6">
 
-        <div class="bg-white rounded-[2.5rem] shadow-soft p-2 stagger-1 relative overflow-hidden border border-white">
+        <div class="bg-white rounded-3xl shadow-soft p-2 stagger-1 relative overflow-hidden border border-gray-100">
           <div class="absolute top-8 left-10 z-10">
             <h2 class="text-lg font-extrabold text-brand-dark flex items-center gap-2.5">
-              <span class="w-2 h-6 bg-brand-pink rounded-full"></span> 模型架构拓扑
+              <span class="w-2 h-6 bg-brand-primary rounded-full"></span> 模型架构拓扑
             </h2>
           </div>
 
           <div class="absolute top-8 right-10 z-10 flex gap-3">
-             <div class="bg-white/90 backdrop-blur-xl p-1.5 rounded-[1.5rem] flex items-center shadow-lg border border-white/50">
+             <div class="bg-white/90 backdrop-blur-xl p-1.5 rounded-2xl flex items-center shadow-lg border border-gray-100">
                <button id="select-files-btn" class="p-2.5 hover:bg-brand-gray rounded-2xl transition-colors text-brand-dark" title="选择文件"><i data-lucide="image-plus" class="w-5 h-5 inline-block"></i></button>
                <button id="select-folder-btn" class="p-2.5 hover:bg-brand-gray rounded-2xl transition-colors text-brand-dark" title="选择文件夹"><i data-lucide="folder-plus" class="w-5 h-5 inline-block"></i></button>
                <div class="w-[1px] h-6 bg-gray-100 mx-2"></div>
-               <button id="start-btn" class="flex items-center gap-2 bg-brand-pink hover:bg-[#c02d58] text-white px-6 py-2.5 rounded-2xl shadow-pink-glow transition-all font-bold text-sm">
+               <button id="start-btn" class="flex items-center gap-2 bg-brand-primary hover:bg-brand-primaryDark text-white px-6 py-2.5 rounded-2xl shadow-glow transition-all font-bold text-sm">
                  <i id="start-icon" data-lucide="play" class="w-4 h-4 inline-block"></i> <span id="start-text">开始检测</span>
                </button>
                <button id="stop-btn" class="flex items-center gap-2 bg-red-50 text-red-600 border border-red-100 hover:bg-red-100 px-6 py-2.5 rounded-2xl transition-all font-bold text-sm hidden">
@@ -139,51 +159,54 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-4 flex flex-col gap-6 stagger-2">
-            <div class="bg-white rounded-[2.5rem] shadow-soft p-8 border border-white relative overflow-hidden">
+            <div class="bg-white rounded-3xl shadow-soft p-8 border border-gray-100 relative overflow-hidden">
               <div class="flex justify-between items-center mb-8">
-                <h3 class="text-xs font-extrabold text-brand-textMuted uppercase tracking-widest">检测统计</h3>
+                <h3 class="text-xs font-extrabold text-brand-muted uppercase tracking-widest">检测统计</h3>
                 <span class="bg-brand-gray text-brand-dark text-xs px-3 py-1 rounded-lg font-bold" id="progress-text">0 / 0</span>
               </div>
               <div class="mb-10">
                 <div class="flex items-end gap-2 mb-2">
                   <span class="text-6xl font-black text-brand-dark tabular-nums tracking-tighter" id="total-cells">0</span>
-                  <span class="text-xs text-brand-textMuted font-bold mb-2">累计检出细胞数</span>
+                  <span class="text-xs text-brand-muted font-bold mb-2">累计检出细胞数</span>
                 </div>
                 <div class="w-full bg-brand-gray rounded-full h-2.5 overflow-hidden">
-                    <div id="progress-bar" class="bg-brand-pink h-full rounded-full transition-all duration-700 ease-out" style="width: 0%"></div>
+                    <div id="progress-bar" class="bg-brand-primary h-full rounded-full transition-all duration-700 ease-out" style="width: 0%"></div>
                 </div>
               </div>
               <div class="grid grid-cols-2 gap-4 mb-4">
-                <div class="bg-brand-gray/50 rounded-3xl p-5 border border-white/50">
-                  <p class="text-[10px] text-brand-textMuted font-black uppercase mb-1 tracking-wider">成功/失败</p>
-                  <p class="text-2xl font-black text-brand-dark tabular-nums"><span id="success-count" class="text-brand-pink">0</span> <span class="text-gray-200 mx-1">/</span> <span id="fail-count" class="text-gray-400">0</span></p>
+                <div class="bg-brand-gray/50 rounded-2xl p-5 border border-gray-100/50">
+                  <p class="text-[10px] text-brand-muted font-black uppercase mb-1 tracking-wider">成功/失败</p>
+                  <p class="text-2xl font-black text-brand-dark tabular-nums"><span id="success-count" class="text-brand-primary">0</span> <span class="text-gray-200 mx-1">/</span> <span id="fail-count" class="text-gray-400">0</span></p>
                 </div>
-                <div class="bg-brand-gray/50 rounded-3xl p-5 border border-white/50">
-                  <p class="text-[10px] text-brand-textMuted font-black uppercase mb-1 tracking-wider">平均推理时间</p>
-                  <p class="text-2xl font-black text-brand-dark tabular-nums" id="avg-time">-- <span class="text-xs text-brand-textMuted font-bold">ms</span></p>
+                <div class="bg-brand-gray/50 rounded-2xl p-5 border border-gray-100/50">
+                  <p class="text-[10px] text-brand-muted font-black uppercase mb-1 tracking-wider">平均推理时间</p>
+                  <p class="text-2xl font-black text-brand-dark tabular-nums" id="avg-time">-- <span class="text-xs text-brand-muted font-bold">ms</span></p>
                 </div>
               </div>
               <div class="grid grid-cols-3 gap-3">
-                <div class="bg-brand-gray/50 rounded-2xl p-4 border border-white/50 text-center">
-                  <div class="flex items-center justify-center gap-1.5 mb-1"><span class="cell-dot" style="background:#e74c3c"></span><p class="text-[10px] font-black text-brand-textMuted uppercase">RBC</p></div>
-                  <p class="text-xl font-black text-[#e74c3c] tabular-nums" id="rbc-count">0</p>
+                <div class="bg-brand-gray/50 rounded-2xl p-4 border border-gray-100/50 text-center">
+                  <div class="flex items-center justify-center gap-1.5 mb-1"><span class="cell-dot" style="background:#DC2626"></span><p class="text-[10px] font-black text-brand-muted uppercase">RBC</p></div>
+                  <p class="text-xl font-black text-[#DC2626] tabular-nums" id="rbc-count">0</p>
+                  <p class="text-[9px] text-brand-muted mt-0.5">红细胞</p>
                 </div>
-                <div class="bg-brand-gray/50 rounded-2xl p-4 border border-white/50 text-center">
-                  <div class="flex items-center justify-center gap-1.5 mb-1"><span class="cell-dot" style="background:#3498db"></span><p class="text-[10px] font-black text-brand-textMuted uppercase">WBC</p></div>
-                  <p class="text-xl font-black text-[#3498db] tabular-nums" id="wbc-count">0</p>
+                <div class="bg-brand-gray/50 rounded-2xl p-4 border border-gray-100/50 text-center">
+                  <div class="flex items-center justify-center gap-1.5 mb-1"><span class="cell-dot" style="background:#0EA5E9"></span><p class="text-[10px] font-black text-brand-muted uppercase">WBC</p></div>
+                  <p class="text-xl font-black text-[#0EA5E9] tabular-nums" id="wbc-count">0</p>
+                  <p class="text-[9px] text-brand-muted mt-0.5">白细胞</p>
                 </div>
-                <div class="bg-brand-gray/50 rounded-2xl p-4 border border-white/50 text-center">
-                  <div class="flex items-center justify-center gap-1.5 mb-1"><span class="cell-dot" style="background:#2ecc71"></span><p class="text-[10px] font-black text-brand-textMuted uppercase">PLT</p></div>
-                  <p class="text-xl font-black text-[#2ecc71] tabular-nums" id="plt-count">0</p>
+                <div class="bg-brand-gray/50 rounded-2xl p-4 border border-gray-100/50 text-center">
+                  <div class="flex items-center justify-center gap-1.5 mb-1"><span class="cell-dot" style="background:#16A34A"></span><p class="text-[10px] font-black text-brand-muted uppercase">PLT</p></div>
+                  <p class="text-xl font-black text-[#16A34A] tabular-nums" id="plt-count">0</p>
+                  <p class="text-[9px] text-brand-muted mt-0.5">血小板</p>
                 </div>
               </div>
             </div>
 
-            <div class="bg-white rounded-[2.5rem] shadow-soft p-6 border border-white">
-               <h3 class="text-sm font-bold text-brand-textMuted uppercase tracking-wider mb-4 flex items-center gap-2">
+            <div class="bg-white rounded-3xl shadow-soft p-6 border border-gray-100">
+               <h3 class="text-sm font-bold text-brand-muted uppercase tracking-wider mb-4 flex items-center gap-2">
                  <i data-lucide="terminal" class="w-4 h-4 inline-block"></i> 运行监控
                </h3>
-               <div id="log-container" class="bg-[#1A1D20] text-[#EAEBEB] rounded-2xl p-4 h-40 overflow-y-auto log-area font-mono text-xs leading-relaxed shadow-inner">
+               <div id="log-container" class="bg-[#0F172A] text-[#E2E8F0] rounded-2xl p-4 h-40 overflow-y-auto log-area font-mono text-xs leading-relaxed shadow-inner">
                  <div class="opacity-50 flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-gray-500"></span> 系统初始化完成，等待任务指令...
                  </div>
@@ -192,48 +215,48 @@
           </div>
 
           <div class="lg:col-span-8 flex flex-col gap-6 stagger-3">
-            <div class="bg-white rounded-[2.5rem] shadow-soft p-8 border border-white flex flex-col min-h-[400px]">
+            <div id="detection-card" class="bg-white rounded-3xl shadow-soft p-8 border border-gray-100 flex flex-col min-h-[400px]">
               <div class="flex justify-between items-center mb-6">
-                <h3 class="text-xs font-extrabold text-brand-textMuted uppercase tracking-widest">检测视图</h3>
-                <span id="current-badge" class="hidden bg-brand-pink/10 text-brand-pink text-[10px] px-3 py-1.5 rounded-full font-black uppercase tracking-tighter items-center gap-1.5 animate-pulse">
+                <h3 class="text-xs font-extrabold text-brand-muted uppercase tracking-widest">检测视图</h3>
+                <span id="current-badge" class="hidden bg-brand-primary/10 text-brand-primary text-[10px] px-3 py-1.5 rounded-full font-black uppercase tracking-tighter items-center gap-1.5 animate-pulse">
                   <i data-lucide="scan-eye" class="w-3.5 h-3.5 inline-block"></i> 实时检测中
                 </span>
-                <span id="history-badge" class="hidden bg-amber-500/10 text-amber-500 text-[10px] px-3 py-1.5 rounded-full font-black uppercase tracking-tighter items-center gap-1.5">
+                <span id="history-badge" class="hidden bg-amber-500/10 text-amber-600 text-[10px] px-3 py-1.5 rounded-full font-black uppercase tracking-tighter items-center gap-1.5">
                   <i data-lucide="history" class="w-3.5 h-3.5 inline-block"></i> 历史回放中
                 </span>
               </div>
 
-              <div id="result-area" class="flex-1 flex flex-col items-center justify-center text-gray-200 border-2 border-dashed border-gray-50 rounded-[2rem] bg-brand-gray/30">
+              <div id="result-area" class="flex-1 flex flex-col items-center justify-center text-gray-200 border-2 border-dashed border-gray-100 rounded-2xl bg-brand-gray/30">
                 <i data-lucide="camera-off" class="w-16 h-16 mb-4 opacity-50 inline-block"></i>
-                <p class="font-bold text-brand-textMuted text-sm">等待血细胞图像流入...</p>
+                <p class="font-bold text-brand-muted text-sm">等待血细胞图像流入...</p>
               </div>
 
               <div id="result-detail" class="hidden flex-1 flex-col animate-fade-in">
                 <div class="grid grid-cols-2 gap-8 mb-8">
                   <div class="space-y-3">
-                    <p class="text-[10px] font-black text-brand-textMuted uppercase tracking-widest">原始图像 (Original)</p>
-                    <div class="aspect-square rounded-3xl overflow-hidden bg-brand-gray border border-white shadow-inner">
+                    <p class="text-[10px] font-black text-brand-muted uppercase tracking-widest">原始图像 (Original)</p>
+                    <div class="aspect-square rounded-2xl overflow-hidden bg-brand-gray border border-gray-100 shadow-inner">
                       <img id="orig-img" src="" alt="original" class="w-full h-full object-cover">
                     </div>
                   </div>
                   <div class="space-y-3">
                     <div class="flex justify-between items-center">
-                        <p class="text-[10px] font-black text-brand-pink uppercase tracking-widest">检测结果 (Detected)</p>
+                        <p class="text-[10px] font-black text-brand-primary uppercase tracking-widest">检测结果 (Detected)</p>
                         <p class="text-[10px] font-black text-brand-dark bg-brand-gray px-2 py-0.5 rounded-lg">置信度: <span id="current-conf">--</span></p>
                     </div>
-                    <div class="aspect-square rounded-3xl overflow-hidden border-2 border-brand-pink/20 shadow-[0_0_30px_rgba(215,53,101,0.1)]">
+                    <div class="aspect-square rounded-2xl overflow-hidden border-2 border-brand-primary/20 shadow-[0_0_30px_rgba(30,111,217,0.12)]">
                       <img id="result-img" src="" alt="detected" class="w-full h-full object-cover">
                     </div>
                   </div>
                 </div>
                 <div class="flex items-center gap-2 mb-4">
-                  <i data-lucide="activity" class="w-4 h-4 text-brand-pink inline-block"></i>
+                  <i data-lucide="activity" class="w-4 h-4 text-brand-primary inline-block"></i>
                   <p id="current-counts" class="text-sm font-bold text-brand-dark">--</p>
                 </div>
-                <div class="bg-brand-gray rounded-3xl p-6 border border-gray-100 relative overflow-hidden mt-auto">
-                  <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-brand-pink"></div>
+                <div class="bg-brand-gray rounded-2xl p-6 border border-gray-100 relative overflow-hidden mt-auto">
+                  <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-brand-primary"></div>
                   <div class="flex items-center gap-3 mb-3">
-                    <i data-lucide="sparkles" class="w-4 h-4 text-brand-pink inline-block"></i>
+                    <i data-lucide="sparkles" class="w-4 h-4 text-brand-primary inline-block"></i>
                     <p class="text-[10px] font-black text-brand-dark uppercase tracking-widest">智能检测报告</p>
                   </div>
                   <p id="report-text" class="text-sm text-brand-dark leading-relaxed font-bold min-h-[1.2em]"></p>
@@ -246,15 +269,65 @@
     </main>
 
     <div id="preview-section" class="fixed bottom-8 left-1/2 -translate-x-1/2 max-w-4xl w-full px-6 z-50 transition-all duration-500 ease-in-out opacity-0 translate-y-[200%] pointer-events-none">
-      <div class="bg-white/80 backdrop-blur-2xl rounded-[2rem] shadow-2xl p-4 border border-white/50">
+      <div class="bg-white/80 backdrop-blur-2xl rounded-2xl shadow-2xl p-4 border border-gray-100">
         <div class="flex items-center justify-between mb-3 px-3">
           <h3 class="text-xs font-black text-brand-dark flex items-center gap-2">
-              <i data-lucide="layers-3" class="w-4 h-4 text-brand-pink inline-block"></i>
-              准备检测列表 (<span id="preview-count" class="text-brand-pink">0</span>)
+              <i data-lucide="layers-3" class="w-4 h-4 text-brand-primary inline-block"></i>
+              准备检测列表 (<span id="preview-count" class="text-brand-primary">0</span>)
           </h3>
           <button id="clear-selection" class="text-[10px] font-black text-gray-400 hover:text-red-500 transition-colors uppercase tracking-widest">清空</button>
         </div>
         <div id="preview-list" class="flex gap-3 overflow-x-auto thumbnail-scroll pb-2 px-3"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-modal" class="fixed inset-0 z-[200] hidden items-center justify-center">
+    <div id="settings-overlay" class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+    <div class="relative bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[85vh] overflow-y-auto p-8 m-4">
+      <div class="flex items-center justify-between mb-6">
+        <h3 class="text-lg font-extrabold text-brand-dark flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-brand-primary inline-block"></i> 系统设置
+        </h3>
+        <button id="settings-close-btn" class="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+          <i data-lucide="x" class="w-5 h-5 text-gray-400 inline-block"></i>
+        </button>
+      </div>
+
+      <div class="space-y-7">
+        <section>
+          <h4 class="text-xs font-black text-brand-muted uppercase tracking-widest mb-3">模型信息</h4>
+          <div id="model-info-box" class="space-y-2 text-sm text-brand-dark">
+            <p class="text-brand-muted text-xs">加载中...</p>
+          </div>
+        </section>
+
+        <section>
+          <h4 class="text-xs font-black text-brand-muted uppercase tracking-widest mb-3">检测参数</h4>
+          <div class="flex items-center justify-between mb-2">
+            <label for="conf-slider" class="text-sm font-bold text-brand-dark">置信度阈值</label>
+            <span id="conf-value" class="text-sm font-black text-brand-primary">0.25</span>
+          </div>
+          <input type="range" id="conf-slider" min="0.05" max="0.95" step="0.05" value="0.25" class="w-full accent-[#1E6FD9]">
+          <div class="flex justify-between text-[10px] text-brand-muted font-bold mt-1">
+            <span>0.05（宽松）</span><span>0.95（严格）</span>
+          </div>
+          <p class="text-xs text-brand-muted mt-2">置信度低于该阈值的检测框将被过滤。阈值越高，误检越少但可能漏检。</p>
+        </section>
+
+        <section>
+          <h4 class="text-xs font-black text-brand-muted uppercase tracking-widest mb-3">类别图例</h4>
+          <div class="space-y-2 text-sm">
+            <div class="flex items-center gap-2"><span class="cell-dot" style="background:#DC2626"></span><span class="font-bold text-brand-dark">RBC</span><span class="text-brand-muted text-xs">红细胞 (Red Blood Cell)</span></div>
+            <div class="flex items-center gap-2"><span class="cell-dot" style="background:#0EA5E9"></span><span class="font-bold text-brand-dark">WBC</span><span class="text-brand-muted text-xs">白细胞 (White Blood Cell)</span></div>
+            <div class="flex items-center gap-2"><span class="cell-dot" style="background:#16A34A"></span><span class="font-bold text-brand-dark">PLT</span><span class="text-brand-muted text-xs">血小板 (Platelets)</span></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="mt-8 flex gap-3">
+        <button id="settings-save-btn" class="flex-1 bg-brand-primary hover:bg-brand-primaryDark text-white py-3 rounded-2xl shadow-glow transition-all font-bold text-sm">保存设置</button>
+        <button id="settings-cancel-btn" class="flex-1 bg-brand-gray hover:bg-gray-200 text-brand-dark py-3 rounded-2xl transition-all font-bold text-sm">取消</button>
       </div>
     </div>
   </div>
@@ -283,7 +356,7 @@
     scene.add(new THREE.AmbientLight(0xffffff, 1.2));
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.8); dirLight.position.set(10, 20, 10); scene.add(dirLight);
 
-    const colorBackbone = 0x1A1D20, colorCBAM = 0xD73565, colorHead = 0x3B82F6, colorInput = 0x8B929E, colorLoss = 0xef4444;
+    const colorBackbone = 0x0F172A, colorCBAM = 0x1E6FD9, colorNeck = 0x0D9488, colorHead = 0x0EA5E9, colorOutput = 0x16A34A, colorInput = 0x64748B, colorLoss = 0xDC2626, colorStats = 0x7C3AED;
     function getGlassMat(color) { return new THREE.MeshPhysicalMaterial({ color, transmission: 0.5, opacity: 0.9, transparent: true, roughness: 0.1, metalness: 0.2, clearcoat: 1.0 }); }
     const interactable = [];
 
@@ -324,19 +397,19 @@
     createLinear("输入图像", pIn.x, pIn.y, pIn.z, 0.2, 2.5, colorInput, "640×640 显微镜血细胞图像");
     createStacked("Backbone 主干网络", pBack.x, pBack.y, pBack.z, 5, 2.5, colorBackbone, "YOLOv8n Backbone (C2f+Conv)，提取多尺度特征");
     createLinear("CBAM 注意力模块", pCBAM.x, pCBAM.y, pCBAM.z, 1.2, 1.4, colorCBAM, "通道+空间双重注意力，聚焦细胞核与边缘纹理");
-    createStacked("Neck 特征金字塔", pNeck.x, pNeck.y, pNeck.z, 4, 2.5, colorBackbone, "FPN+PAN 多尺度特征融合，适应小目标");
+    createStacked("Neck 特征金字塔", pNeck.x, pNeck.y, pNeck.z, 4, 2.5, colorNeck, "FPN+PAN 多尺度特征融合，适应小目标");
     createLinear("检测头", pHead.x, pHead.y, pHead.z, 0.6, 1.4, colorHead, "分类 + 回归，输出检测框与置信度");
-    createLinear("检测结果", pOut.x, pOut.y, pOut.z, 0.2, 2.5, colorInput, "RBC / WBC / Platelets 标注可视化");
+    createLinear("检测结果", pOut.x, pOut.y, pOut.z, 0.2, 2.5, colorOutput, "RBC / WBC / PLT 标注可视化");
     createLinear("Focal Loss", pFocal.x, pFocal.y, pFocal.z, 1.0, 1.0, colorLoss, "α=0.25, γ=2.0，缓解类别长尾分布");
-    createLinear("类别统计", pClass.x, pClass.y, pClass.z, 1.0, 1.2, colorHead, "红细胞 / 白细胞 / 血小板计数");
+    createLinear("类别统计", pClass.x, pClass.y, pClass.z, 1.0, 1.2, colorStats, "红细胞 / 白细胞 / 血小板计数");
 
     createFlow(pIn, new THREE.Vector3(pBack.x-1.5, pBack.y, 0), colorInput, true, 1.5);
     createFlow(new THREE.Vector3(pBack.x+1.5, pBack.y, 0), pCBAM, colorBackbone);
     createFlow(new THREE.Vector3(pCBAM.x+0.8, pCBAM.y, 0), pNeck, colorBackbone);
-    createFlow(new THREE.Vector3(pNeck.x+1.4, pNeck.y, 0), pHead, colorBackbone);
-    createFlow(new THREE.Vector3(pHead.x+0.5, pHead.y, 0), pOut, colorBackbone);
+    createFlow(new THREE.Vector3(pNeck.x+1.4, pNeck.y, 0), pHead, colorNeck);
+    createFlow(new THREE.Vector3(pHead.x+0.5, pHead.y, 0), pOut, colorHead);
     createFlow(pCBAM, pFocal, colorLoss, true, -1.0);
-    createFlow(pFocal, pClass, colorLoss);
+    createFlow(pFocal, pClass, colorStats);
 
     const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2(), tooltip = document.getElementById('tooltip-3d'); let hovered = null;
     container.addEventListener('mousemove', (e) => {
@@ -373,7 +446,7 @@
         try {
             const safeText = String(rawText || '');
             const processedText = safeText
-                .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-brand-pink">$1</strong>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-brand-primary">$1</strong>')
                 .replace(/\n/g, '<br>');
 
             if (speed === 0) {
@@ -415,9 +488,61 @@
     }
 
     const body = document.querySelector('body'), openDrawerBtn = document.getElementById('open-drawer-btn'), closeDrawerBtn = document.getElementById('close-drawer-btn');
-    openDrawerBtn.onclick = () => { body.classList.add('drawer-open'); loadHistory(); };
+    openDrawerBtn.onclick = () => { body.classList.add('drawer-open'); loadHistory(); setActiveNav('open-drawer-btn'); };
     function closeDrawer() { body.classList.remove('drawer-open'); }
     closeDrawerBtn.onclick = closeDrawer; document.getElementById('drawer-overlay').onclick = closeDrawer;
+
+    /* ================= 侧边栏导航 ================= */
+    function setActiveNav(id) {
+        document.querySelectorAll('.nav-btn').forEach(b => {
+            const active = b.id === id;
+            b.classList.toggle('bg-white', active);
+            b.classList.toggle('text-brand-primary', active);
+            b.classList.toggle('shadow-sm', active);
+            b.classList.toggle('text-gray-400', !active);
+            if (active) b.classList.remove('hover:text-brand-primary');
+            else b.classList.add('hover:text-brand-primary');
+        });
+    }
+    const mainScroll = document.getElementById('main-scroll');
+    document.getElementById('nav-dashboard').onclick = () => { closeDrawer(); setActiveNav('nav-dashboard'); mainScroll.scrollTo({ top: 0, behavior: 'smooth' }); };
+    document.getElementById('nav-detect').onclick = () => { closeDrawer(); setActiveNav('nav-detect'); document.getElementById('detection-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+
+    /* ================= 设置面板 ================= */
+    let currentConf = 0.25;
+    const settingsModal = document.getElementById('settings-modal');
+    const confSlider = document.getElementById('conf-slider');
+    const confValue = document.getElementById('conf-value');
+    confSlider.addEventListener('input', () => { confValue.textContent = parseFloat(confSlider.value).toFixed(2); });
+
+    async function openSettings() {
+        setActiveNav('nav-settings');
+        try {
+            const res = await fetch('/api/model_info');
+            const info = await res.json();
+            const deviceLabel = String(info.device) === 'cpu' ? 'CPU' : `GPU ${info.device}`;
+            document.getElementById('model-info-box').innerHTML = `
+                <div class="flex justify-between"><span class="text-brand-muted">架构</span><span class="font-bold">CF-YOLOv8</span></div>
+                <div class="flex justify-between"><span class="text-brand-muted">改进点</span><span class="font-bold">CBAM + Focal Loss</span></div>
+                <div class="flex justify-between"><span class="text-brand-muted">权重文件</span><span class="font-bold">${info.weights || '--'}</span></div>
+                <div class="flex justify-between"><span class="text-brand-muted">推理设备</span><span class="font-bold">${deviceLabel}（自动选择）</span></div>
+                <div class="flex justify-between"><span class="text-brand-muted">类别</span><span class="font-bold">RBC / WBC / PLT</span></div>`;
+        } catch (e) {
+            document.getElementById('model-info-box').innerHTML = '<p class="text-red-500 text-xs">模型信息加载失败</p>';
+        }
+        settingsModal.classList.remove('hidden');
+        settingsModal.classList.add('flex');
+    }
+    function closeSettings() { settingsModal.classList.add('hidden'); settingsModal.classList.remove('flex'); }
+    document.getElementById('nav-settings').onclick = openSettings;
+    document.getElementById('settings-close-btn').onclick = closeSettings;
+    document.getElementById('settings-overlay').onclick = closeSettings;
+    document.getElementById('settings-cancel-btn').onclick = closeSettings;
+    document.getElementById('settings-save-btn').onclick = () => {
+        currentConf = parseFloat(confSlider.value);
+        confValue.textContent = currentConf.toFixed(2);
+        closeSettings();
+    };
 
     let selected = []; let timer = null;
     const startBtn = document.getElementById('start-btn'), stopBtn = document.getElementById('stop-btn'), startIcon = document.getElementById('start-icon'), startText = document.getElementById('start-text'), prevSec = document.getElementById('preview-section');
@@ -454,7 +579,7 @@
     startBtn.onclick = async () => {
         if(selected.length === 0) return alert('请选择图片');
         startBtn.disabled = true; startIcon.setAttribute('data-lucide', 'loader-2'); startIcon.classList.add('animate-spin'); startText.textContent = '连接中...'; lucide.createIcons();
-        const fd = new FormData(); selected.forEach(f => fd.append('files', f));
+        const fd = new FormData(); selected.forEach(f => fd.append('files', f)); fd.append('conf', currentConf);
         try {
             const res = await fetch('/api/dashboard/start', { method: 'POST', body: fd });
             const data = await res.json();
@@ -464,6 +589,8 @@
                 document.getElementById('current-badge').classList.replace('hidden', 'flex');
                 document.getElementById('history-badge').classList.replace('flex', 'hidden');
                 if(timer) clearInterval(timer); timer = setInterval(fetchStatus, 1000);
+            } else if(data.error) {
+                alert(data.error);
             }
         } catch(e) { alert('启动失败: ' + e); resetUI(); }
         finally { startBtn.disabled = false; startIcon.setAttribute('data-lucide', 'play'); startIcon.classList.remove('animate-spin'); startText.textContent = '开始检测'; lucide.createIcons(); }
@@ -482,7 +609,7 @@
         const data = await res.json();
         if(data.stats) {
             document.getElementById('total-cells').textContent = data.stats.total_cells;
-            document.getElementById('avg-time').innerHTML = data.stats.avg_time ? `${data.stats.avg_time} <span class="text-xs text-brand-textMuted font-bold">ms</span>` : '--';
+            document.getElementById('avg-time').innerHTML = data.stats.avg_time ? `${data.stats.avg_time} <span class="text-xs text-brand-muted font-bold">ms</span>` : '--';
             document.getElementById('success-count').textContent = data.stats.success;
             document.getElementById('fail-count').textContent = data.stats.fail;
             document.getElementById('rbc-count').textContent = data.stats.rbc;
@@ -504,7 +631,7 @@
                 lastDrawnFile = data.latest_result.filename;
                 document.getElementById('current-conf').textContent = data.latest_result.avg_conf.toFixed(3);
                 document.getElementById('current-counts').textContent =
-                    `RBC ${data.latest_result.counts.RBC} · WBC ${data.latest_result.counts.WBC} · Platelets ${data.latest_result.counts.Platelets}`;
+                    `RBC ${data.latest_result.counts.RBC} · WBC ${data.latest_result.counts.WBC} · PLT ${data.latest_result.counts.Platelets}`;
                 typeWriterEffect(document.getElementById('report-text'), data.latest_result.report || '暂无检测报告', 20);
             }
         }
@@ -525,7 +652,7 @@
         if(!data.running) { clearInterval(timer); resetUI(); loadHistory(); }
     }
 
-    /* ================= 纯内存历史流与防抖搜索 ================= */
+    /* ================= 历史记录流与防抖搜索 ================= */
     function debounce(fn, delay) {
         let timeoutID;
         return function(...args) {
@@ -548,14 +675,14 @@
             if (data.length === 0) {
                 container.innerHTML = `<div class="text-center py-12 transform scale-100">
                     <i data-lucide="${keyword ? 'search-x' : 'ghost'}" class="w-10 h-10 mx-auto mb-3 text-gray-300"></i>
-                    <p class="text-xs font-bold text-gray-400">${keyword ? '未找到匹配结果' : '沙箱已清空，暂无数据'}</p>
+                    <p class="text-xs font-bold text-gray-400">${keyword ? '未找到匹配结果' : '暂无检测记录'}</p>
                 </div>`;
                 lucide.createIcons();
                 return;
             }
 
             container.innerHTML = data.map((item, index) => `
-                <div class="bg-brand-gray/40 p-3 rounded-2xl border border-transparent hover:border-brand-pink/30 hover:bg-white hover:shadow-md cursor-pointer transition-all duration-300 group"
+                <div class="bg-brand-gray/40 p-3 rounded-2xl border border-transparent hover:border-brand-primary/30 hover:bg-white hover:shadow-md cursor-pointer transition-all duration-300 group"
                      onclick="replayHistoryByIndex(${index})">
                     <div class="flex gap-3 items-center">
                         <div class="relative w-12 h-12 rounded-xl overflow-hidden border border-gray-100 bg-gray-50 flex-shrink-0">
@@ -566,9 +693,9 @@
                         </div>
                         <div class="flex-1 overflow-hidden">
                             <p class="text-xs font-bold text-brand-dark truncate mb-0.5">${item.filename}</p>
-                            <p class="text-[10px] text-brand-textMuted flex justify-between items-center">
+                            <p class="text-[10px] text-brand-muted flex justify-between items-center">
                                 <span><i data-lucide="clock" class="w-3 h-3 inline mr-0.5"></i>${item.timestamp}</span>
-                                <span class="text-brand-pink font-bold bg-brand-pink/10 px-1.5 rounded">${item.total} 个细胞</span>
+                                <span class="text-brand-primary font-bold bg-brand-primary/10 px-1.5 rounded">${item.total} 个细胞</span>
                             </p>
                         </div>
                     </div>
@@ -595,7 +722,7 @@
         document.getElementById('result-img').src = item.result_url;
         document.getElementById('current-conf').textContent = item.avg_conf.toFixed(3);
         document.getElementById('current-counts').textContent =
-            `RBC ${item.counts.RBC} · WBC ${item.counts.WBC} · Platelets ${item.counts.Platelets}`;
+            `RBC ${item.counts.RBC} · WBC ${item.counts.WBC} · PLT ${item.counts.Platelets}`;
 
         typeWriterEffect(document.getElementById('report-text'), item.report || '暂无检测报告', 0);
     };
@@ -607,23 +734,23 @@
         }, 300));
     }
 
-    document.getElementById('burn-btn').addEventListener('click', async () => {
-        if(!confirm("⚠️ 警告：这将彻底擦除内存与硬盘沙箱中的所有历史记录，操作不可逆。是否继续？")) return;
+    document.getElementById('clear-history-btn').addEventListener('click', async () => {
+        if(!confirm("确定要清空所有检测历史记录吗？此操作不可逆。")) return;
 
-        const btn = document.getElementById('burn-btn');
+        const btn = document.getElementById('clear-history-btn');
         const originalHtml = btn.innerHTML;
-        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline-block"></i> 粉碎中...`;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 animate-spin inline-block"></i> 清空中...`;
 
         try {
-            await fetch('/api/history/burn', { method: 'POST' });
+            await fetch('/api/history/clear', { method: 'POST' });
 
             const container = document.getElementById('drawer-log-container');
             container.style.opacity = '0';
             setTimeout(() => {
                 container.innerHTML = `
                     <div class="text-center py-12 transform scale-110">
-                        <i data-lucide="shield-check" class="w-10 h-10 mx-auto mb-3 text-emerald-400"></i>
-                        <p class="text-xs font-black text-emerald-500 uppercase tracking-widest">物理沙箱已安全擦除</p>
+                        <i data-lucide="check-circle-2" class="w-10 h-10 mx-auto mb-3 text-emerald-500"></i>
+                        <p class="text-xs font-black text-emerald-600 uppercase tracking-widest">检测记录已清空</p>
                     </div>
                 `;
                 container.style.opacity = '1';
@@ -636,7 +763,7 @@
 
             }, 300);
         } catch(e) {
-            alert('销毁请求失败');
+            alert('清空请求失败');
         } finally {
             setTimeout(() => { btn.innerHTML = originalHtml; lucide.createIcons(); }, 1500);
         }

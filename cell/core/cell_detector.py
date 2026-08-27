@@ -25,10 +25,10 @@ class CellDetector(BaseDetector):
     CLASS_CN = {"RBC": "红细胞", "WBC": "白细胞", "Platelets": "血小板"}
     CLASS_COLORS = {"RBC": "#e74c3c", "WBC": "#3498db", "Platelets": "#2ecc71"}
 
-    def __init__(self):
-        self.WEIGHTS = os.path.join(PROJECT_ROOT, "weights", "cf.pt")
-        self.DEFAULT_CONF = 0.25
-        self.device = None
+    def __init__(self, weights=None, device=None, conf=0.25):
+        self.WEIGHTS = weights or os.path.join(PROJECT_ROOT, "weights", "cf.pt")
+        self.DEFAULT_CONF = conf
+        self.device = device
         self.model = None
 
     def _auto_select_device(self):
@@ -46,7 +46,10 @@ class CellDetector(BaseDetector):
         return best
 
     def load_model(self):
-        self.device = self._auto_select_device()
+        if self.device is None:
+            self.device = self._auto_select_device()
+        else:
+            self.device = str(self.device)
         print(f"🩸 加载模型: {self.WEIGHTS}  (device={self.device})")
         self.model = YOLO(self.WEIGHTS)
         print("✅ CF-YOLOv8 加载成功！")

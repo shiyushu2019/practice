@@ -4,16 +4,20 @@
 参照 web_app_example 的架构与 UI 风格重写。
 
 用法:
-    python app.py
-    浏览器访问 http://127.0.0.1:5000
+    python app.py                                  # 默认端口 5000
+    python app.py --port 8080                      # 指定端口
+    python app.py --host 0.0.0.0 --port 8080       # 指定监听地址与端口
+    python app.py --device 6 --conf 0.3            # 指定推理设备与置信度阈值
 """
-import os
+import argparse
 import base64
+import logging
+import os
+import shutil
+import tempfile
 import threading
 import time
-import shutil
 import uuid
-import tempfile
 
 from flask import Flask, render_template, request, jsonify, send_file
 
@@ -21,15 +25,40 @@ from core.cell_detector import CellDetector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
+# 默认配置（可被命令行参数或环境变量覆盖）
+DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
+DEFAULT_CONF = 0.25
+DEFAULT_HOST = "0.0.0.0"
+DEFAULT_PORT = 5000
+
+logger = logging.getLogger("cell.dashboard")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="CF-YOLOv8 血细胞智能检测系统")
+    parser.add_argument("--host", default=os.environ.get("CELL_HOST", DEFAULT_HOST),
+                        help=f"监听地址（默认 {DEFAULT_HOST}，可用环境变量 CELL_HOST 覆盖）")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("CELL_PORT", DEFAULT_PORT)),
+                        help=f"监听端口（默认 {DEFAULT_PORT}，可用环境变量 CELL_PORT 覆盖）")
+    parser.add_argument("--device", default=os.environ.get("CELL_DEVICE"),
+                        help="推理设备（如 0-7 或 cpu），默认自动选择空闲显存最多的 GPU")
+    parser.add_argument("--weights", default=os.environ.get("CELL_WEIGHTS", DEFAULT_WEIGHTS),
+                        help=f"模型权重路径（默认 {DEFAULT_WEIGHTS}）")
+    parser.add_argument("--conf", type=float, default=float(os.environ.get("CELL_CONF", DEFAULT_CONF)),
+                        help=f"默认置信度阈值（默认 {DEFAULT_CONF}）")
+    parser.add_argument("--debug", action="store_true", help="开启 Flask 调试模式")
+    return parser.parse_args()
+
+
 app = Flask(
     __name__,
     template_folder=os.path.join(HERE, "templates"),
     static_folder=os.path.join(HERE, "static"),
 )
-app.secret_key = 'cell-dashboard-secret-key-2026'
+app.secret_key = os.environ.get("CELL_SECRET_KEY", "cell-dashboard-secret-key-2026")
 
 UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "cell_uploads")
-CACHE_DIR = os.path.join(tempfile.gettempdir(), "cell_privacy_cache")
+CACHE_DIR = os.path.join(tempfile.gettempdir(), "cell_result_cache")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 if os.path.exists(CACHE_DIR):
     try:
@@ -38,20 +67,19 @@ if os.path.exists(CACHE_DIR):
         print(f"清理沙箱失败: {e}")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+# 运行时状态：detector / model_info 在 main() 中初始化
+detector = None
+model_info = {}
+
 history_cache = []
 cache_lock = threading.Lock()
-
-print("Initializing CF-YOLOv8 Detector...")
-detector = CellDetector()
-detector.load_model()
-model_info = detector.get_model_info()
-print("All detection models loaded:", model_info)
 
 task_state = {
     "running": False,
     "stop_requested": False,
     "files": [],
     "current_idx": 0,
+    "conf": DEFAULT_CONF,
     "stats": {
         "success": 0, "fail": 0, "total": 0,
         "total_cells": 0, "total_conf": 0.0, "avg_conf": 0.0,
@@ -64,9 +92,9 @@ task_state = {
 state_lock = threading.Lock()
 
 
-def process_image(filepath):
+def process_image(filepath, conf=0.25):
     """对单张图像执行检测并写入历史缓存。"""
-    result = detector.detect({"image_path": filepath})
+    result = detector.detect({"image_path": filepath, "conf": conf})
     if result is None:
         return None
 
@@ -82,8 +110,8 @@ def process_image(filepath):
     record = {
         "id": record_id,
         "filename": result["filename"],
-        "orig_url": f"/api/sandbox/image/{orig_name}",
-        "result_url": f"/api/sandbox/image/{result_name}",
+        "orig_url": f"/api/result/image/{orig_name}",
+        "result_url": f"/api/result/image/{result_name}",
         "counts": result["counts"],
         "total": result["total"],
         "avg_conf": result["avg_conf"],
@@ -110,11 +138,12 @@ def processing_loop():
                 break
             filepath = task_state["files"][task_state["current_idx"]]
             filename = os.path.basename(filepath)
+            conf = task_state.get("conf", 0.25)
             task_state["stats"]["total"] = len(task_state["files"])
 
         start_proc_time = time.time()
         try:
-            result = process_image(filepath)
+            result = process_image(filepath, conf)
             cost = time.time() - start_proc_time
             with state_lock:
                 if result:
@@ -173,6 +202,11 @@ def start_task():
     files = request.files.getlist('files')
     if not files:
         return jsonify({"error": "No files uploaded"}), 400
+    try:
+        conf = float(request.form.get('conf', DEFAULT_CONF))
+    except (TypeError, ValueError):
+        conf = DEFAULT_CONF
+    conf = max(0.05, min(0.95, conf))
 
     filepaths = []
     for f in files:
@@ -182,7 +216,7 @@ def start_task():
 
     with state_lock:
         if task_state["running"]:
-            task_state["stop_requested"] = True
+            return jsonify({"error": "检测任务正在进行中，请先停止或等待完成"}), 409
         task_state.update({
             "running": True,
             "stop_requested": False,
@@ -195,6 +229,7 @@ def start_task():
                 "rbc": 0, "wbc": 0, "platelets": 0,
             },
             "latest_result": {},
+            "conf": conf,
             "logs": [f"[{time.strftime('%H:%M:%S')}] Start processing {len(filepaths)} images"],
         })
         threading.Thread(target=processing_loop, daemon=True).start()
@@ -215,6 +250,7 @@ def get_status():
         stats = task_state["stats"]
         return jsonify({
             "running": task_state["running"],
+            "conf": task_state.get("conf", DEFAULT_CONF),
             "progress": {"current": task_state["current_idx"], "total": stats["total"]},
             "stats": {
                 "success": stats["success"],
@@ -232,12 +268,12 @@ def get_status():
         })
 
 
-@app.route('/api/sandbox/image/<filename>')
-def get_sandbox_image(filename):
+@app.route('/api/result/image/<filename>')
+def get_result_image(filename):
     safe_path = os.path.abspath(os.path.join(CACHE_DIR, filename))
     if safe_path.startswith(os.path.abspath(CACHE_DIR)) and os.path.exists(safe_path):
         return send_file(safe_path)
-    return jsonify({"error": "File burned"}), 404
+    return jsonify({"error": "File not found"}), 404
 
 
 @app.route('/api/history', methods=['GET'])
@@ -260,20 +296,35 @@ def get_history():
         return jsonify(filtered)
 
 
-@app.route('/api/history/burn', methods=['POST'])
-def burn_history():
+@app.route('/api/history/clear', methods=['POST'])
+def clear_history():
     global history_cache
     with cache_lock:
         history_cache.clear()
         if os.path.exists(CACHE_DIR):
             shutil.rmtree(CACHE_DIR)
         os.makedirs(CACHE_DIR, exist_ok=True)
-    return jsonify({"status": "burned", "message": "Memory and disk traces safely erased."})
+    return jsonify({"status": "cleared", "message": "Detection history cleared."})
+
+
+def main():
+    args = parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+
+    global detector, model_info, DEFAULT_CONF
+    DEFAULT_CONF = args.conf
+
+    logger.info("初始化 CF-YOLOv8 检测器...")
+    detector = CellDetector(weights=args.weights, device=args.device, conf=args.conf)
+    detector.load_model()
+    model_info = detector.get_model_info()
+    logger.info("模型加载完成: %s", model_info)
+
+    logger.info("🩸 CF-YOLOv8 血细胞智能检测系统")
+    logger.info("访问: http://%s:%d", args.host, args.port)
+    app.run(host=args.host, port=args.port, debug=args.debug)
 
 
 if __name__ == '__main__':
-    print("=" * 40)
-    print("🩸 CF-YOLOv8 血细胞智能检测系统")
-    print("🌐 访问: http://127.0.0.1:5000")
-    print("=" * 40)
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    main()
