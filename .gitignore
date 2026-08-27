@@ -6,7 +6,7 @@ rubbish/
 *.log
 
 #-------baidu---------
-baidu/
+baidu/ 
 
 #-------LM-----------
 Archive/LM/data/
@@ -22,3 +22,5 @@ cell/**/coco8/
 cell/**/*.pt
 cell/docker/
 cell/weights/
+cell/static/
+cell/uploads/
