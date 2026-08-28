@@ -172,7 +172,7 @@ def main():
     ap.add_argument("--unfreeze-lr", type=float, default=0.005,
                     help="解冻后精调阶段的学习率 lr0 (文档: 低学习率精调)")
     ap.add_argument("--out", default=None, help="输出权重文件名 (默认 weights/<variant>.pt)")
-    ap.add_argument("--data", default=os.path.join(HERE, "bccd_preprocessed.yaml"), help="数据集 yaml 路径")
+    ap.add_argument("--data", default=os.path.join(HERE, "dataset", "bccd_preprocessed.yaml"), help="数据集 yaml 路径")
     ap.add_argument("--imgsz", type=int, default=640, help="输入图像尺寸")
     ap.add_argument("--optimizer", default="SGD", help="优化器 (SGD/Adam/AdamW/... )")
     ap.add_argument("--lr0", type=float, default=0.01, help="初始学习率")

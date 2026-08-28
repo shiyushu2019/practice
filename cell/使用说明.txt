@@ -18,7 +18,7 @@ python train.py --variant cf --device 7 --epochs 100 --batch 32
 python train.py --variant cf --device 7 --epochs 200 --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 1.0 --patience 100
 
 # 推理：单图或目录，--weights 指定权重
-python inf.py --source BCCD_Dataset/test/images --weights weights/cf.pt --device 7 --conf 0.25 --save
+python inf.py --source dataset/BCCD_Dataset/test/images --weights weights/cf.pt --device 7 --conf 0.25 --save
 python inf.py --source a.jpg --weights weights/cf.pt --imgsz 640 --iou 0.7 --max-det 300 --save-txt --save-conf
 
 # 验证：--split test/val，--weights 逗号分隔（不传则用内置 baseline/cbam/cf/cf_norm）

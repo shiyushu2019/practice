@@ -1,4 +1,4 @@
-path: ./BCCD_Dataset
+path: ./dataset/BCCD_Dataset
 train: train/images
 val: val/images
 test: test/images

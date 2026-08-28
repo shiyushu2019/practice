@@ -14,7 +14,6 @@ import base64
 import logging
 import os
 import shutil
-import tempfile
 import threading
 import time
 import uuid
@@ -30,6 +29,13 @@ DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 DEFAULT_CONF = 0.25
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 5000
+
+# UI 运行时产生的临时文件统一放在 cell/temp 下
+TEMP_DIR = os.path.join(HERE, "temp")
+UPLOAD_DIR = os.path.join(TEMP_DIR, "uploads")
+CACHE_DIR = os.path.join(TEMP_DIR, "results")
+STATIC_DIR = os.path.join(TEMP_DIR, "static")
+LOG_FILE = os.path.join(TEMP_DIR, "app.log")
 
 logger = logging.getLogger("cell.dashboard")
 
@@ -53,19 +59,13 @@ def parse_args():
 app = Flask(
     __name__,
     template_folder=os.path.join(HERE, "templates"),
-    static_folder=os.path.join(HERE, "static"),
+    static_folder=STATIC_DIR,
 )
 app.secret_key = os.environ.get("CELL_SECRET_KEY", "cell-dashboard-secret-key-2026")
 
-UPLOAD_DIR = os.path.join(tempfile.gettempdir(), "cell_uploads")
-CACHE_DIR = os.path.join(tempfile.gettempdir(), "cell_result_cache")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
-if os.path.exists(CACHE_DIR):
-    try:
-        shutil.rmtree(CACHE_DIR)
-    except Exception as e:
-        print(f"清理沙箱失败: {e}")
 os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(STATIC_DIR, exist_ok=True)
 
 # 运行时状态：detector / model_info 在 main() 中初始化
 detector = None
@@ -310,7 +310,14 @@ def clear_history():
 def main():
     args = parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        ],
+    )
 
     global detector, model_info, DEFAULT_CONF
     DEFAULT_CONF = args.conf

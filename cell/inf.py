@@ -2,9 +2,9 @@
 
 用法:
     python inf.py --source path/to/image.jpg
-    python inf.py --source BCCD_Dataset/test/images
+    python inf.py --source dataset/BCCD_Dataset/test/images
     python inf.py --source image.jpg --weights weights/baseline.pt --conf 0.3 --save
-    python inf.py --source BCCD_Dataset/test/images --imgsz 640 --iou 0.7 --save-txt --save-conf
+    python inf.py --source dataset/BCCD_Dataset/test/images --imgsz 640 --iou 0.7 --save-txt --save-conf
 """
 import argparse
 import os
@@ -69,7 +69,7 @@ def main():
         print(f"{os.path.basename(img)}: 共 {len(boxes)} 个细胞 -> {counts}")
 
         if args.save:
-            out_dir = os.path.join(HERE, "results")
+            out_dir = os.path.join(HERE, "temp", "results")
             os.makedirs(out_dir, exist_ok=True)
             out = os.path.join(out_dir, os.path.basename(img))
             r.save(filename=out)
