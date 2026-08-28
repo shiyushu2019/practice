@@ -27,7 +27,6 @@ MODELS = {
     "baseline": os.path.join(WEIGHTS_DIR, "baseline.pt"),
     "cbam": os.path.join(WEIGHTS_DIR, "cbam.pt"),
     "cf": os.path.join(WEIGHTS_DIR, "cf.pt"),
-    "cf_norm": os.path.join(WEIGHTS_DIR, "cf_norm.pt"),
 }
 NAMES = ["RBC", "WBC", "Platelets"]
 
