@@ -18,6 +18,8 @@ import threading
 import time
 import uuid
 
+import torch
+
 from flask import Flask, render_template, request, jsonify, send_file
 
 from core.cell_detector import CellDetector
@@ -29,6 +31,7 @@ DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 DEFAULT_CONF = 0.25
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 5000
+WEIGHTS_DIR = os.path.join(HERE, "weights")
 
 # UI 运行时产生的临时文件统一放在 cell/temp 下
 TEMP_DIR = os.path.join(HERE, "temp")
@@ -90,11 +93,13 @@ task_state = {
     "logs": [],
 }
 state_lock = threading.Lock()
+model_lock = threading.Lock()
 
 
 def process_image(filepath, conf=0.25):
     """对单张图像执行检测并写入历史缓存。"""
-    result = detector.detect({"image_path": filepath, "conf": conf})
+    with model_lock:
+        result = detector.detect({"image_path": filepath, "conf": conf})
     if result is None:
         return None
 
@@ -194,6 +199,136 @@ def get_model_info():
         "device": model_info.get("device"),
         "conf": model_info.get("conf"),
     })
+
+
+def _free_model():
+    """释放当前模型占用的显存，避免切换时显存叠加导致 OOM。"""
+    old = detector.model
+    detector.model = None
+    if old is not None:
+        del old
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+
+def list_available_weights():
+    """扫描 weights 目录下的所有 .pt 权重文件。"""
+    items = []
+    if os.path.isdir(WEIGHTS_DIR):
+        for name in sorted(os.listdir(WEIGHTS_DIR)):
+            if not name.endswith(".pt"):
+                continue
+            path = os.path.join(WEIGHTS_DIR, name)
+            if os.path.isfile(path):
+                items.append({
+                    "name": name,
+                    "size": os.path.getsize(path),
+                    "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(path))),
+                    "current": model_info.get("weights") == name,
+                })
+    return items
+
+
+@app.route('/api/weights', methods=['GET'])
+def get_weights():
+    return jsonify({
+        "weights": list_available_weights(),
+        "current": model_info.get("weights"),
+    })
+
+
+@app.route('/api/weights/switch', methods=['POST'])
+def switch_weights():
+    global model_info
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("weights", "")).strip()
+    if not name:
+        return jsonify({"error": "缺少权重文件名"}), 400
+
+    weights_root = os.path.abspath(WEIGHTS_DIR)
+    target = os.path.abspath(os.path.join(WEIGHTS_DIR, name))
+    if not (target.startswith(weights_root + os.sep) and target.endswith(".pt") and os.path.isfile(target)):
+        return jsonify({"error": f"非法的权重文件: {name}"}), 400
+
+    with state_lock:
+        if task_state["running"]:
+            return jsonify({"error": "检测任务正在进行中，请先停止后再切换权重"}), 409
+
+    old_weights = detector.WEIGHTS
+    old_device = detector.device
+    try:
+        with model_lock:
+            detector.WEIGHTS = target
+            _free_model()
+            detector.load_model()
+            model_info = detector.get_model_info()
+    except Exception as e:
+        logger.exception("切换权重失败: %s", name)
+        # 切换失败时回滚到原权重，避免检测器处于无模型状态
+        try:
+            detector.WEIGHTS = old_weights
+            detector.device = old_device
+            _free_model()
+            detector.load_model()
+            model_info = detector.get_model_info()
+        except Exception:
+            logger.exception("恢复原权重失败: %s", old_weights)
+        return jsonify({"error": f"切换权重失败: {e}"}), 500
+
+    return jsonify({"status": "ok", "info": model_info})
+
+
+@app.route('/api/devices', methods=['GET'])
+def get_devices():
+    devices = []
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            free = total = None
+            try:
+                free, total = torch.cuda.mem_get_info(i)
+            except Exception:
+                pass
+            devices.append({
+                "id": str(i),
+                "name": torch.cuda.get_device_name(i),
+                "free": free,
+                "total": total,
+            })
+    devices.append({"id": "cpu", "name": "CPU", "free": None, "total": None})
+    return jsonify({"devices": devices, "current": str(detector.device) if detector else None})
+
+
+@app.route('/api/device/switch', methods=['POST'])
+def switch_device():
+    global model_info
+    data = request.get_json(silent=True) or {}
+    raw = str(data.get("device", "")).strip().lower()
+    if not raw:
+        return jsonify({"error": "缺少设备编号"}), 400
+
+    if raw == "cpu":
+        device = "cpu"
+    else:
+        try:
+            idx = int(raw)
+        except ValueError:
+            return jsonify({"error": "无效的设备编号"}), 400
+        if not torch.cuda.is_available():
+            return jsonify({"error": "当前环境无可用 CUDA GPU"}), 400
+        if idx < 0 or idx >= torch.cuda.device_count():
+            return jsonify({"error": f"GPU {idx} 不存在（可用 0-{torch.cuda.device_count()-1}）"}), 400
+        device = str(idx)
+
+    with state_lock:
+        if task_state["running"]:
+            return jsonify({"error": "检测任务正在进行中，请先停止后再切换设备"}), 409
+
+    # 设备切换只影响后续推理所用的设备，无需重新加载权重
+    with model_lock:
+        detector.device = device
+        model_info = detector.get_model_info()
+
+    return jsonify({"status": "ok", "info": model_info})
 
 
 @app.route('/api/dashboard/start', methods=['POST'])

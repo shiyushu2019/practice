@@ -1,7 +1,7 @@
 """统一验证脚本 —— 在测试集/验证集上评估所有训练权重。
 
 用法:
-    python eval.py                    # 默认测试集, GPU 7, 混合数据集
+    python eval.py                    # 默认测试集, 自动选卡, 混合数据集
     python eval.py --split val        # 用验证集
     python eval.py --device 6         # 换卡
     python eval.py --dataset bccd     # 仅 BCCD 数据集
@@ -35,7 +35,8 @@ NAMES = ["RBC", "WBC", "Platelets"]
 def main():
     ap = argparse.ArgumentParser(description="统一验证脚本")
     ap.add_argument("--split", default="test", choices=["test", "val"])
-    ap.add_argument("--device", default="7")
+    ap.add_argument("--device", default=None,
+                    help="GPU 编号 (0-7 或 cpu; 不传则自动选择空闲显存最多的卡)")
     ap.add_argument("--dataset", default="mixed", choices=["bccd", "txl", "mixed"],
                     help="数据集选择: bccd=仅BCCD, txl=仅TXL-PBC, mixed=混合 (默认 mixed)")
     ap.add_argument("--data", default=None,
@@ -45,6 +46,9 @@ def main():
     ap.add_argument("--weights", default=None,
                     help="逗号分隔的权重路径; 不指定则评估内置 MODELS")
     args = ap.parse_args()
+
+    # 参数范围保护: IoU 越界时静默夹取到 [0, 1]
+    args.iou = max(0.0, min(1.0, args.iou))
 
     # 解析数据集 yaml (--data 优先, 否则按 --dataset 选择, 默认 mixed)
     if args.data:
@@ -62,7 +66,7 @@ def main():
     else:
         models = list(MODELS.items())
 
-    print(f"评估集: {args.split}, 数据集: {args.dataset} ({args.data}), 设备: GPU {args.device}\n")
+    print(f"评估集: {args.split}, 数据集: {args.dataset} ({args.data}), 设备: {args.device or 'auto (空闲显存最多)'}\n")
     for name, path in models:
         if not os.path.exists(path):
             print(f"⚠️  跳过 {name}: 找不到 {path}")

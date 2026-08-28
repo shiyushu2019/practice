@@ -303,6 +303,24 @@
         </section>
 
         <section>
+          <h4 class="text-xs font-black text-brand-muted uppercase tracking-widest mb-3">模型权重</h4>
+          <div class="space-y-3">
+            <select id="weights-select" class="w-full bg-brand-gray border border-gray-100 rounded-xl px-3 py-2.5 text-sm font-bold text-brand-dark outline-none focus:border-brand-primary/50 transition-colors"></select>
+            <button id="weights-switch-btn" class="w-full bg-brand-primary hover:bg-brand-primaryDark text-white py-2.5 rounded-xl shadow-glow transition-all font-bold text-sm">切换权重</button>
+            <p id="weights-status" class="text-xs text-brand-muted">加载中...</p>
+          </div>
+        </section>
+
+        <section>
+          <h4 class="text-xs font-black text-brand-muted uppercase tracking-widest mb-3">硬件设备</h4>
+          <div class="space-y-3">
+            <select id="device-select" class="w-full bg-brand-gray border border-gray-100 rounded-xl px-3 py-2.5 text-sm font-bold text-brand-dark outline-none focus:border-brand-primary/50 transition-colors"></select>
+            <button id="device-switch-btn" class="w-full bg-brand-dark hover:bg-black text-white py-2.5 rounded-xl transition-all font-bold text-sm">切换设备</button>
+            <p id="device-status" class="text-xs text-brand-muted">加载中...</p>
+          </div>
+        </section>
+
+        <section>
           <h4 class="text-xs font-black text-brand-muted uppercase tracking-widest mb-3">检测参数</h4>
           <div class="flex items-center justify-between mb-2">
             <label for="conf-slider" class="text-sm font-bold text-brand-dark">置信度阈值</label>
@@ -515,8 +533,7 @@
     const confValue = document.getElementById('conf-value');
     confSlider.addEventListener('input', () => { confValue.textContent = parseFloat(confSlider.value).toFixed(2); });
 
-    async function openSettings() {
-        setActiveNav('nav-settings');
+    async function renderModelInfo() {
         try {
             const res = await fetch('/api/model_info');
             const info = await res.json();
@@ -524,12 +541,63 @@
             document.getElementById('model-info-box').innerHTML = `
                 <div class="flex justify-between"><span class="text-brand-muted">架构</span><span class="font-bold">CF-YOLOv8</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">改进点</span><span class="font-bold">CBAM + Focal Loss</span></div>
-                <div class="flex justify-between"><span class="text-brand-muted">权重文件</span><span class="font-bold">${info.weights || '--'}</span></div>
+                <div class="flex justify-between"><span class="text-brand-muted">当前权重</span><span class="font-bold text-brand-primary">${info.weights || '--'}</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">推理设备</span><span class="font-bold">${deviceLabel}（自动选择）</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">类别</span><span class="font-bold">RBC / WBC / PLT</span></div>`;
+            return info;
         } catch (e) {
             document.getElementById('model-info-box').innerHTML = '<p class="text-red-500 text-xs">模型信息加载失败</p>';
+            return null;
         }
+    }
+
+    async function loadWeights() {
+        const sel = document.getElementById('weights-select');
+        const status = document.getElementById('weights-status');
+        try {
+            const res = await fetch('/api/weights');
+            const data = await res.json();
+            sel.innerHTML = '';
+            (data.weights || []).forEach(w => {
+                const opt = document.createElement('option');
+                opt.value = w.name;
+                opt.textContent = w.name + (w.current ? '（当前）' : '');
+                if (w.current) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            status.textContent = `共 ${(data.weights || []).length} 个权重文件`;
+        } catch (e) {
+            status.textContent = '权重列表加载失败';
+        }
+    }
+
+    async function loadDevices() {
+        const sel = document.getElementById('device-select');
+        const status = document.getElementById('device-status');
+        try {
+            const res = await fetch('/api/devices');
+            const data = await res.json();
+            sel.innerHTML = '';
+            (data.devices || []).forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                const freeLabel = d.free != null ? `${(d.free / 1073741824).toFixed(1)}GB 空闲` : '';
+                const cur = String(d.id) === String(data.current);
+                opt.textContent = `${d.id === 'cpu' ? 'CPU' : `GPU ${d.id} · ${d.name}`} ${freeLabel}${cur ? '（当前）' : ''}`;
+                if (cur) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            status.textContent = `共 ${(data.devices || []).length} 个设备可选`;
+        } catch (e) {
+            status.textContent = '设备列表加载失败';
+        }
+    }
+
+    async function openSettings() {
+        setActiveNav('nav-settings');
+        await renderModelInfo();
+        await loadWeights();
+        await loadDevices();
         settingsModal.classList.remove('hidden');
         settingsModal.classList.add('flex');
     }
@@ -542,6 +610,62 @@
         currentConf = parseFloat(confSlider.value);
         confValue.textContent = currentConf.toFixed(2);
         closeSettings();
+    };
+
+    document.getElementById('weights-switch-btn').onclick = async () => {
+        const btn = document.getElementById('weights-switch-btn');
+        const status = document.getElementById('weights-status');
+        const name = document.getElementById('weights-select').value;
+        if (!name) return;
+        btn.disabled = true; btn.textContent = '切换中...';
+        status.textContent = '正在加载权重，请稍候...';
+        try {
+            const res = await fetch('/api/weights/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ weights: name })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                await renderModelInfo();
+                await loadWeights();
+                status.textContent = `已切换到 ${data.info.weights}`;
+            } else {
+                status.textContent = data.error || '切换失败';
+            }
+        } catch (e) {
+            status.textContent = '切换失败: ' + e;
+        } finally {
+            btn.disabled = false; btn.textContent = '切换权重';
+        }
+    };
+
+    document.getElementById('device-switch-btn').onclick = async () => {
+        const btn = document.getElementById('device-switch-btn');
+        const status = document.getElementById('device-status');
+        const device = document.getElementById('device-select').value;
+        if (device === '') return;
+        btn.disabled = true; btn.textContent = '切换中...';
+        status.textContent = '正在切换设备...';
+        try {
+            const res = await fetch('/api/device/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                await renderModelInfo();
+                await loadDevices();
+                status.textContent = `已切换到 ${String(data.info.device) === 'cpu' ? 'CPU' : `GPU ${data.info.device}`}`;
+            } else {
+                status.textContent = data.error || '切换失败';
+            }
+        } catch (e) {
+            status.textContent = '切换失败: ' + e;
+        } finally {
+            btn.disabled = false; btn.textContent = '切换设备';
+        }
     };
 
     let selected = []; let timer = null;

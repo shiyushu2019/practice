@@ -36,11 +36,17 @@ def main():
     ap.add_argument("--imgsz", type=int, default=640, help="推理输入尺寸")
     ap.add_argument("--iou", type=float, default=0.7, help="NMS IoU 阈值")
     ap.add_argument("--max-det", type=int, default=300, help="每张图最大检测框数")
-    ap.add_argument("--device", default="7")
+    ap.add_argument("--device", default=None,
+                    help="GPU 编号 (0-7 或 cpu; 不传则自动选择空闲显存最多的卡)")
     ap.add_argument("--save", action="store_true", help="保存绘制了检测框的结果图")
     ap.add_argument("--save-txt", action="store_true", help="保存 YOLO 标签 txt")
     ap.add_argument("--save-conf", action="store_true", help="标签 txt 附带置信度")
     args = ap.parse_args()
+
+    # 参数范围保护: 越界值静默夹取到合法区间, 避免实验时手误
+    args.conf = max(0.01, min(1.0, args.conf))
+    args.iou = max(0.0, min(1.0, args.iou))
+    args.max_det = max(1, args.max_det)
 
     # 未指定 source 时, 默认使用所选数据集的测试集图片目录
     if not args.source:
