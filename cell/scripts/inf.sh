@@ -6,4 +6,4 @@ python inf.py \
   --imgsz 640 \
   --iou 0.7 \
   --max-det 300 \
-  --device 7
+  --device 0

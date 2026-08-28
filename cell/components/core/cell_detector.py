@@ -25,7 +25,7 @@ class CellDetector(BaseDetector):
     CLASS_CN = {"RBC": "红细胞", "WBC": "白细胞", "Platelets": "血小板"}
     CLASS_COLORS = {"RBC": "#e74c3c", "WBC": "#3498db", "Platelets": "#2ecc71"}
 
-    def __init__(self, weights=None, device=None, conf=0.25):
+    def __init__(self, weights=None, device="0", conf=0.25):
         self.WEIGHTS = weights or os.path.join(PROJECT_ROOT, "weights", "cf.pt")
         self.DEFAULT_CONF = conf
         self.device = device

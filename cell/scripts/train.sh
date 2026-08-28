@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 python train.py \
   --variant cf \
-  --device 7 \
+  --device 0 \
   --epochs 100 \
   --batch 32 \
   --gamma 2.0 \

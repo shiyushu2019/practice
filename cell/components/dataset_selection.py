@@ -60,9 +60,10 @@ DATASETS = {
 
 
 def _write_yaml(yaml_path, dataset_root):
-    """写一份与 bccd_preprocessed.yaml 同构的数据集 yaml (path 用绝对路径, 更稳健)。"""
+    """写一份与 bccd_preprocessed.yaml 同构的数据集 yaml (path 用相对路径, 便于移植)。"""
+    rel_root = os.path.relpath(dataset_root, HERE)
     content = (
-        f"path: {dataset_root}\n"
+        f"path: ./{rel_root}\n"
         "train: train/images\n"
         "val: val/images\n"
         "test: test/images\n"
@@ -97,7 +98,7 @@ def _link_or_copy(src, dst):
     if os.path.exists(dst):
         return
     try:
-        os.symlink(os.path.abspath(src), dst)
+        os.symlink(os.path.relpath(src, os.path.dirname(dst)), dst)
     except OSError:
         shutil.copy2(src, dst)
 

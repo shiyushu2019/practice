@@ -1,0 +1,49 @@
+# =============================================================================
+# CF-YOLOv8 血细胞智能检测系统 —— conda 环境一键复现
+#
+# 用法:
+#   conda env create -f environment.yml
+#   conda activate cell
+#
+# 说明:
+#   1. 本环境基于 Python 3.10 构建 (与 numpy 2.x / torch 兼容)。
+#   2. torch / torchvision 默认走 PyPI (Linux 版自带 CUDA 支持)。
+#      若显卡驱动与默认 CUDA 不匹配导致 torch.cuda.is_available() 为 False,
+#      请先按驱动版本手动重装 torch, 例如 cu128:
+#         pip install torch==2.10.0 torchvision==0.25.0 \
+#             --index-url https://download.pytorch.org/whl/cu128
+#      其他 CUDA 版本见 https://pytorch.org/get-started/locally/
+# =============================================================================
+
+name: cell
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # ---- 深度学习框架 (GPU 版, 按需调整 CUDA 版本) ----
+      - torch==2.10.0
+      - torchvision==0.25.0
+
+      # ---- 目标检测 ----
+      - ultralytics==8.4.130
+
+      # ---- 图像 / 数值计算 ----
+      - opencv-python>=4.11.0
+      - numpy>=2.2.0
+      - pillow>=10.4.0
+      - scipy>=1.15.0
+      - matplotlib>=3.10.0
+
+      # ---- Web 演示系统 (app.py) ----
+      - flask>=3.1.0
+
+      # ---- 数据处理 / 工具 ----
+      - pandas>=2.3.0
+      - pyyaml>=6.0.3
+      - tqdm>=4.70.0
+      - requests>=2.32.0
+      - psutil>=7.0.0

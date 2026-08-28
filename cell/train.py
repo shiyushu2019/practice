@@ -7,7 +7,7 @@
     python train.py --variant cf --batch 32 --epochs 100
     python train.py --variant cf --freeze-epochs 10   # 文档迁移学习流程: 先冻结后解冻
     python train.py --variant cf --normalize           # Focal Loss 按 BCE 总量归一化 (实验性)
-    python train.py --variant cf --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 0 --device 7
+    python train.py --variant cf --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 0 --device 0
     python train.py --dataset bccd                     # 仅 BCCD 数据集
     python train.py --dataset txl                      # 仅 TXL-PBC 数据集
     python train.py --dataset mixed                    # 混合两个数据集 (默认)
@@ -165,8 +165,8 @@ def run_phase(overrides, args, variant):
 def main():
     ap = argparse.ArgumentParser(description="统一训练脚本 (CBAM/Focal 按文档实现)")
     ap.add_argument("--variant", default="cf", choices=["baseline", "cbam", "cf"])
-    ap.add_argument("--device", default=None,
-                    help="GPU 编号 (0-7 或 cpu; 不传则自动选择空闲显存最多的卡)")
+    ap.add_argument("--device", default="0",
+                    help="GPU 编号 (0-7 或 cpu; 默认 0)")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--gamma", type=float, default=1.5)
@@ -218,7 +218,7 @@ def main():
     print("=" * 70)
     print(f"训练变体: {args.variant}   dataset={args.dataset} ({args.data})  "
           f"batch={args.batch}  epochs={args.epochs}  "
-          f"freeze_epochs={args.freeze_epochs}  device={args.device or 'auto'}")
+          f"freeze_epochs={args.freeze_epochs}  device={args.device}")
     print("=" * 70)
 
     # 阶段1: 冻结 backbone, 只训练检测头 (文档: 先冻结主干训练检测头)

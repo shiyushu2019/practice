@@ -1,4 +1,4 @@
-path: /data1/code/jssnu005/sys/practice/cell/dataset/mixed_blood_cell
+path: ./dataset/mixed_blood_cell
 train: train/images
 val: val/images
 test: test/images

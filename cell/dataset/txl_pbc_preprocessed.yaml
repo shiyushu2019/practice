@@ -1,4 +1,4 @@
-path: /data1/code/jssnu005/sys/practice/cell/dataset/TXL-PBC_preprocessed
+path: ./dataset/TXL-PBC_preprocessed
 train: train/images
 val: val/images
 test: test/images

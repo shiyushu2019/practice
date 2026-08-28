@@ -1,15 +1,15 @@
 ## Web 检测系统 (app.py)
 
 CLI 启动：
-  /data1/conda_envs/jssnu005/sys/cell/bin/python app.py                       # 默认端口 5000
-  /data1/conda_envs/jssnu005/sys/cell/bin/python app.py --port 8080           # 指定端口
-  /data1/conda_envs/jssnu005/sys/cell/bin/python app.py --device 6 --conf 0.3 # 指定 GPU 与置信度阈值
-  /data1/conda_envs/jssnu005/sys/cell/bin/python app.py --weights weights/cbam.pt --device 0
+  python app.py                                 # 默认端口 5000
+  python app.py --port 8080                     # 指定端口
+  python app.py --device 6 --conf 0.3           # 指定 GPU 与置信度阈值
+  python app.py --weights weights/cbam.pt --device 0
 
 参数：
   --host      监听地址（默认 0.0.0.0）
   --port      端口（默认 5000）
-  --device    GPU 编号（0-7 或 cpu；默认自动选空闲显存最多的卡）
+  --device    GPU 编号（0-7 或 cpu；默认 0 号显卡）
   --weights   模型权重路径（默认 weights/cf.pt）
   --conf      置信度阈值（默认 0.25）
   --debug     开启 Flask 调试模式（默认关闭）
@@ -22,7 +22,7 @@ CLI 启动：
 
 ## 摄像头实时检测 (camera.py)
 
-环境：/data1/conda_envs/jssnu005/sys/cell/bin/python（在 cell 目录下执行，需在有摄像头与显示器的机器上运行）
+环境：python（先激活 conda 环境，在 cell 目录下执行，需在有摄像头与显示器的机器上运行）
 
 # 默认摄像头 0 + weights/cf.pt，实时检测并按 q 退出
 python camera.py
@@ -33,24 +33,24 @@ python camera.py
 
 ## 训练 / 推理 / 验证 (train.py / inf.py / eval.py)
 
-Python 环境：/data1/conda_envs/jssnu005/sys/practice/bin/python（在 cell 目录下执行）
+Python 环境：python（先激活 conda 环境，在 cell 目录下执行）
 
 --------------------------------------------------------------------------------
 train.py —— 训练脚本（--variant 可选 baseline/cbam/cf）
 --------------------------------------------------------------------------------
 
 基本用法：
-  python train.py --variant cf --device 7 --epochs 100 --batch 32
-  python train.py --variant baseline --device 7                 # 纯 YOLOv8n 对照
-  python train.py --variant cbam --device 7                     # YOLOv8n + CBAM
-  python train.py --variant cf --dataset bccd --device 7        # 仅 BCCD 数据集
-  python train.py --variant cf --dataset txl --device 7         # 仅 TXL-PBC 数据集
-  python train.py --variant cf --freeze-epochs 10 --device 7    # 迁移学习：先冻结后解冻
-  python train.py --variant cf --out cf_v2 --device 7           # 输出 weights/cf_v2.pt
+  python train.py --variant cf --device 0 --epochs 100 --batch 32
+  python train.py --variant baseline --device 0                 # 纯 YOLOv8n 对照
+  python train.py --variant cbam --device 0                     # YOLOv8n + CBAM
+  python train.py --variant cf --dataset bccd --device 0        # 仅 BCCD 数据集
+  python train.py --variant cf --dataset txl --device 0         # 仅 TXL-PBC 数据集
+  python train.py --variant cf --freeze-epochs 10 --device 0    # 迁移学习：先冻结后解冻
+  python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/cf_v2.pt
 
 完整参数（默认值见括号）：
   --variant         变体 baseline/cbam/cf（默认 cf）
-  --device          GPU 编号（不传则自动选空闲显存最多的卡；也可 0-7 或 cpu）
+  --device          GPU 编号（默认 0；也可 0-7 或 cpu）
   --epochs          训练轮数（默认 100）
   --batch           Batch size（默认 32）
   --gamma           Focal Loss γ（默认 1.5）
@@ -103,7 +103,7 @@ inf.py —— 推理脚本（单图或目录）
   --imgsz       推理输入尺寸（默认 640）
   --iou         NMS IoU 阈值（默认 0.7，越界自动夹取到 0-1）
   --max-det     每张图最大检测框数（默认 300，至少 1）
-  --device      GPU 编号（不传则自动选空闲显存最多的卡；也可 0-7 或 cpu）
+  --device      GPU 编号（默认 0；也可 0-7 或 cpu）
   --save        保存带检测框的结果图到 temp/results/
   --save-txt    保存 YOLO 标签 txt
   --save-conf   标签 txt 附带置信度
@@ -116,15 +116,15 @@ eval.py —— 验证脚本（测试集/验证集）
 --------------------------------------------------------------------------------
 
 基本用法：
-  python eval.py                          # 默认测试集、自动选卡、混合数据集，评估内置 4 个权重
+  python eval.py                          # 默认测试集、0 号卡、混合数据集，评估内置 4 个权重
   python eval.py --split val              # 用验证集
   python eval.py --device 6               # 换卡
   python eval.py --dataset bccd           # 仅 BCCD 数据集
-  python eval.py --weights weights/cf.pt,weights/cbam.pt --device 7
+  python eval.py --weights weights/cf.pt,weights/cbam.pt --device 0
 
 完整参数（默认值见括号）：
   --split    评估集 test/val（默认 test）
-  --device   GPU 编号（不传则自动选空闲显存最多的卡；也可 0-7 或 cpu）
+  --device   GPU 编号（默认 0；也可 0-7 或 cpu）
   --dataset  数据集 bccd/txl/mixed（默认 mixed）
   --data     数据集 yaml 路径（指定后覆盖 --dataset）
   --imgsz    验证输入尺寸（默认 640）

@@ -40,7 +40,7 @@ WEIGHTS_DIR = os.path.join(HERE, "weights")
 TEMP_DIR = os.path.join(HERE, "temp")
 UPLOAD_DIR = os.path.join(TEMP_DIR, "uploads")
 CACHE_DIR = os.path.join(TEMP_DIR, "results")
-STATIC_DIR = os.path.join(TEMP_DIR, "static")
+STATIC_DIR = os.path.join(HERE, "components", "static")
 LOG_FILE = os.path.join(TEMP_DIR, "app.log")
 
 logger = logging.getLogger("cell.dashboard")
@@ -52,8 +52,8 @@ def parse_args():
                         help=f"监听地址（默认 {DEFAULT_HOST}，可用环境变量 CELL_HOST 覆盖）")
     parser.add_argument("--port", type=int, default=int(os.environ.get("CELL_PORT", DEFAULT_PORT)),
                         help=f"监听端口（默认 {DEFAULT_PORT}，可用环境变量 CELL_PORT 覆盖）")
-    parser.add_argument("--device", default=os.environ.get("CELL_DEVICE"),
-                        help="推理设备（如 0-7 或 cpu），默认自动选择空闲显存最多的 GPU")
+    parser.add_argument("--device", default=os.environ.get("CELL_DEVICE", "0"),
+                        help="推理设备（如 0-7 或 cpu，默认 0）")
     parser.add_argument("--weights", default=os.environ.get("CELL_WEIGHTS", DEFAULT_WEIGHTS),
                         help=f"模型权重路径（默认 {DEFAULT_WEIGHTS}）")
     parser.add_argument("--conf", type=float, default=float(os.environ.get("CELL_CONF", DEFAULT_CONF)),
