@@ -3,7 +3,9 @@ __pycache__/
 checkpoints/
 nohup.out
 rubbish/
+rubbish2/
 *.log
+agent_prompt.txt
 
 #-------baidu---------
 baidu/ 
@@ -18,9 +20,11 @@ liter/data/
 
 # -------cell---------
 cell/doc.txt
-cell/agent_prompt.txt
 cell/weights/
 cell/leagcy/
 cell/dataset/BCCD_Dataset_preprocessed/
 cell/dataset/BCCD_Dataset/
 cell/temp/
+cell/dataset/TXL-PBC_Dataset/
+cell/dataset/mixed_blood_cell/
+cell/dataset/TXL-PBC_preprocessed

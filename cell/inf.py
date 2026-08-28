@@ -5,6 +5,9 @@
     python inf.py --source dataset/BCCD_Dataset/test/images
     python inf.py --source image.jpg --weights weights/baseline.pt --conf 0.3 --save
     python inf.py --source dataset/BCCD_Dataset/test/images --imgsz 640 --iou 0.7 --save-txt --save-conf
+    python inf.py --dataset mixed                    # 默认推理混合数据集的测试集 (无需 --source)
+    python inf.py --dataset bccd                     # 仅 BCCD 测试集
+    python inf.py --dataset txl                      # 仅 TXL-PBC 测试集
 """
 import argparse
 import os
@@ -16,6 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ultralytics import YOLO  # noqa: E402
 
+from dataset_selection import resolve_test_images, ensure_dataset_ready  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
@@ -23,7 +28,9 @@ IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
 def main():
     ap = argparse.ArgumentParser(description="统一推理脚本")
-    ap.add_argument("--source", required=True, help="图片路径或目录")
+    ap.add_argument("--source", default=None, help="图片路径或目录 (未指定时使用 --dataset 对应的测试集)")
+    ap.add_argument("--dataset", default="mixed", choices=["bccd", "txl", "mixed"],
+                    help="数据集选择 (仅用于默认测试图目录, 默认 mixed)")
     ap.add_argument("--weights", default=DEFAULT_WEIGHTS)
     ap.add_argument("--conf", type=float, default=0.25, help="置信度阈值")
     ap.add_argument("--imgsz", type=int, default=640, help="推理输入尺寸")
@@ -34,6 +41,12 @@ def main():
     ap.add_argument("--save-txt", action="store_true", help="保存 YOLO 标签 txt")
     ap.add_argument("--save-conf", action="store_true", help="标签 txt 附带置信度")
     args = ap.parse_args()
+
+    # 未指定 source 时, 默认使用所选数据集的测试集图片目录
+    if not args.source:
+        ensure_dataset_ready(args.dataset)
+        args.source = resolve_test_images(args.dataset)
+        print(f"[数据集] {args.dataset} -> 测试集目录: {args.source}")
 
     model = YOLO(args.weights)
 

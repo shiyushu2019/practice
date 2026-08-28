@@ -2,6 +2,6 @@
 python eval.py \
   --split test \
   --device 7 \
-  --data dataset/bccd.yaml \
+  --dataset mixed \
   --imgsz 640 \
   --iou 0.7

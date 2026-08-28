@@ -1,0 +1,7 @@
+path: /data1/code/jssnu005/sys/practice/cell/dataset/TXL-PBC_preprocessed
+train: train/images
+val: val/images
+test: test/images
+
+nc: 3
+names: ['RBC', 'WBC', 'Platelets']

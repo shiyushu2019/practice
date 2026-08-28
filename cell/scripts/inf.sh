@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 python inf.py \
-  --source dataset/BCCD_Dataset/test/images \
+  --dataset mixed \
   --weights weights/cf.pt \
   --conf 0.25 \
   --imgsz 640 \

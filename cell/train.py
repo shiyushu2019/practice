@@ -8,6 +8,9 @@
     python train.py --variant cf --freeze-epochs 10   # 文档迁移学习流程: 先冻结后解冻
     python train.py --variant cf --normalize           # Focal Loss 按 BCE 总量归一化 (实验性)
     python train.py --variant cf --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 0 --device 7
+    python train.py --dataset bccd                     # 仅 BCCD 数据集
+    python train.py --dataset txl                      # 仅 TXL-PBC 数据集
+    python train.py --dataset mixed                    # 混合两个数据集 (默认)
 
 训练完成后 best 权重统一保存到 weights/<variant>.pt。
 
@@ -37,6 +40,7 @@ from ultralytics import YOLO  # noqa: E402
 
 from cbam import CBAMConv  # noqa: E402
 from focal_loss import FocalDetectionModel  # noqa: E402
+from dataset_selection import resolve_yaml, ensure_dataset_ready  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_DIR = os.path.join(HERE, "weights")
@@ -172,7 +176,10 @@ def main():
     ap.add_argument("--unfreeze-lr", type=float, default=0.005,
                     help="解冻后精调阶段的学习率 lr0 (文档: 低学习率精调)")
     ap.add_argument("--out", default=None, help="输出权重文件名 (默认 weights/<variant>.pt)")
-    ap.add_argument("--data", default=os.path.join(HERE, "dataset", "bccd_preprocessed.yaml"), help="数据集 yaml 路径")
+    ap.add_argument("--dataset", default="mixed", choices=["bccd", "txl", "mixed"],
+                    help="数据集选择: bccd=仅BCCD, txl=仅TXL-PBC, mixed=混合 (默认 mixed)")
+    ap.add_argument("--data", default=None,
+                    help="数据集 yaml 路径 (指定后覆盖 --dataset)")
     ap.add_argument("--imgsz", type=int, default=640, help="输入图像尺寸")
     ap.add_argument("--optimizer", default="SGD", help="优化器 (SGD/Adam/AdamW/... )")
     ap.add_argument("--lr0", type=float, default=0.01, help="初始学习率")
@@ -195,12 +202,20 @@ def main():
     ap.add_argument("--no-plots", action="store_true", help="不保存训练曲线图")
     args = ap.parse_args()
 
+    # 解析数据集 yaml (--data 优先, 否则按 --dataset 选择, 默认 mixed)
+    if args.data:
+        data_yaml = args.data
+    else:
+        data_yaml = ensure_dataset_ready(args.dataset)
+    args.data = data_yaml
+
     out_stem = os.path.splitext(os.path.basename(args.out))[0] if args.out else args.variant
     train_name = f"_{out_stem}_train"
     freeze_name = f"_{out_stem}_freeze"
 
     print("=" * 70)
-    print(f"训练变体: {args.variant}   batch={args.batch}  epochs={args.epochs}  "
+    print(f"训练变体: {args.variant}   dataset={args.dataset} ({args.data})  "
+          f"batch={args.batch}  epochs={args.epochs}  "
           f"freeze_epochs={args.freeze_epochs}  device={args.device}")
     print("=" * 70)
 

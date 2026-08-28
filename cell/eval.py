@@ -1,9 +1,12 @@
 """统一验证脚本 —— 在测试集/验证集上评估所有训练权重。
 
 用法:
-    python eval.py                    # 默认测试集, GPU 4
+    python eval.py                    # 默认测试集, GPU 7, 混合数据集
     python eval.py --split val        # 用验证集
     python eval.py --device 6         # 换卡
+    python eval.py --dataset bccd     # 仅 BCCD 数据集
+    python eval.py --dataset txl      # 仅 TXL-PBC 数据集
+    python eval.py --dataset mixed    # 混合两个数据集 (默认)
 """
 import argparse
 import os
@@ -14,6 +17,8 @@ os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ultralytics import YOLO  # noqa: E402
+
+from dataset_selection import resolve_yaml, ensure_dataset_ready  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_DIR = os.path.join(HERE, "weights")
@@ -31,12 +36,22 @@ def main():
     ap = argparse.ArgumentParser(description="统一验证脚本")
     ap.add_argument("--split", default="test", choices=["test", "val"])
     ap.add_argument("--device", default="7")
-    ap.add_argument("--data", default=os.path.join(HERE, "dataset", "bccd.yaml"), help="数据集 yaml 路径")
+    ap.add_argument("--dataset", default="mixed", choices=["bccd", "txl", "mixed"],
+                    help="数据集选择: bccd=仅BCCD, txl=仅TXL-PBC, mixed=混合 (默认 mixed)")
+    ap.add_argument("--data", default=None,
+                    help="数据集 yaml 路径 (指定后覆盖 --dataset)")
     ap.add_argument("--imgsz", type=int, default=640, help="验证输入尺寸")
     ap.add_argument("--iou", type=float, default=0.7, help="验证 NMS 的 IoU 阈值")
     ap.add_argument("--weights", default=None,
                     help="逗号分隔的权重路径; 不指定则评估内置 MODELS")
     args = ap.parse_args()
+
+    # 解析数据集 yaml (--data 优先, 否则按 --dataset 选择, 默认 mixed)
+    if args.data:
+        data_yaml = args.data
+    else:
+        data_yaml = ensure_dataset_ready(args.dataset)
+    args.data = data_yaml
 
     if args.weights:
         models = []
@@ -47,7 +62,7 @@ def main():
     else:
         models = list(MODELS.items())
 
-    print(f"评估集: {args.split}, 设备: GPU {args.device}\n")
+    print(f"评估集: {args.split}, 数据集: {args.dataset} ({args.data}), 设备: GPU {args.device}\n")
     for name, path in models:
         if not os.path.exists(path):
             print(f"⚠️  跳过 {name}: 找不到 {path}")

@@ -8,7 +8,7 @@ python train.py \
   --alpha 0.25 \
   --freeze-epochs 0 \
   --unfreeze-lr 0.005 \
-  --data dataset/bccd_preprocessed.yaml \
+  --dataset mixed \
   --imgsz 640 \
   --optimizer SGD \
   --lr0 0.01 \
