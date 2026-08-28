@@ -14,6 +14,7 @@ import base64
 import logging
 import os
 import shutil
+import sys
 import threading
 import time
 import uuid
@@ -25,6 +26,8 @@ from flask import Flask, render_template, request, jsonify, send_file
 from components.core.cell_detector import CellDetector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# 兼容旧权重: 旧 checkpoint 里 focal_loss/cbam 是顶层模块, 反序列化时需能 import 到它们
+sys.path.insert(0, os.path.join(HERE, "components"))
 
 # 默认配置（可被命令行参数或环境变量覆盖）
 DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
