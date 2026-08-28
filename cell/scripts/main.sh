@@ -8,8 +8,8 @@ python train.py --variant baseline --epochs 100 --dataset mixed --device 7
 # 阶段2: YOLOv8n + CBAM
 python train.py --variant cbam --epochs 100 --dataset mixed --device 7
 
-# 阶段3: CF-YOLOv8 (CBAM+Focal), 文档迁移学习: 先冻结主干 10 轮, 再解冻精调 90 轮
-python train.py --variant cf --epochs 100 --freeze-epochs 10 --dataset mixed --device 7
+# 阶段3: CF-YOLOv8 (CBAM+Focal), 与 baseline/cbam 一致单阶段训练 100 轮 (freeze=0)
+python train.py --variant cf --epochs 100 --dataset mixed --device 7
 
 # 阶段4: 在混合测试集上验证所有变体
 python eval.py --split test --dataset mixed --device 7 \
