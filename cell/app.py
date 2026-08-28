@@ -22,7 +22,7 @@ import torch
 
 from flask import Flask, render_template, request, jsonify, send_file
 
-from core.cell_detector import CellDetector
+from components.core.cell_detector import CellDetector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -61,7 +61,7 @@ def parse_args():
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(HERE, "templates"),
+    template_folder=os.path.join(HERE, "components", "templates"),
     static_folder=STATIC_DIR,
 )
 app.secret_key = os.environ.get("CELL_SECRET_KEY", "cell-dashboard-secret-key-2026")

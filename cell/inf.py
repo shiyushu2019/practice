@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ultralytics import YOLO  # noqa: E402
 
-from dataset_selection import resolve_test_images, ensure_dataset_ready  # noqa: E402
+from components.dataset_selection import resolve_test_images, ensure_dataset_ready  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")

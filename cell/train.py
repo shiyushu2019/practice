@@ -39,9 +39,9 @@ from ultralytics.nn.tasks import DetectionModel  # noqa: E402
 from ultralytics.nn.modules import Conv  # noqa: E402
 from ultralytics import YOLO  # noqa: E402
 
-from cbam import CBAMConv  # noqa: E402
-from focal_loss import FocalDetectionModel  # noqa: E402
-from dataset_selection import resolve_yaml, ensure_dataset_ready  # noqa: E402
+from components.cbam import CBAMConv  # noqa: E402
+from components.focal_loss import FocalDetectionModel  # noqa: E402
+from components.dataset_selection import resolve_yaml, ensure_dataset_ready  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_DIR = os.path.join(HERE, "weights")
