@@ -9,6 +9,16 @@ CLI 启动：
 启动后浏览器打开 http://127.0.0.1:5000 即可使用。
 
 
+## 摄像头实时检测 (camera.py)
+
+环境：/data1/conda_envs/jssnu005/sys/cell/bin/python（在 cell 目录下执行，需在有摄像头与显示器的机器上运行）
+
+# 默认摄像头 0 + weights/cf.pt，实时检测并按 q 退出
+python camera.py
+
+说明：程序打开摄像头 0，加载 weights/cf.pt，以置信度 0.25 逐帧检测并绘制检测框，按 q 退出。
+
+
 ## 训练 / 推理 / 验证 (train.py / inf.py / eval.py)
 
 Python 环境：/data1/conda_envs/jssnu005/sys/practice/bin/python（在 cell 目录下执行）
