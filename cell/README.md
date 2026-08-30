@@ -10,9 +10,7 @@
 
 ```bash
 conda env create -f environment.yml   # 创建环境（环境名 cell）
-conda activate cell                    # 或：conda activate /data1/conda_envs/jssnu005/sys/cell
-# 等价于 pip 安装
-pip install -r requirements.txt
+conda activate cell
 ```
 
 关键依赖：`ultralytics==8.4.130`、`torch==2.10.0+cu128`、`opencv-python`、`flask`。
