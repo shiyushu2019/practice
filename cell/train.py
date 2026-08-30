@@ -5,8 +5,9 @@
     python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
     python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=1.5, 归一化)
     python train.py --variant cf --batch 32 --epochs 100
-    python train.py --variant cf --freeze-epochs 10   # 文档迁移学习流程: 先冻结后解冻
-    python train.py --variant cf --normalize           # Focal Loss 按 BCE 总量归一化 (实验性)
+    python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.005  # 先冻结后解冻
+    python train.py --variant cf --no-normalize   # 关闭 Focal Loss 按 BCE 总量归一化 (默认开启)
+    python train.py --variant cf --gamma 2.0     # 调 Focal Loss gamma (文档要求 2.0)
     python train.py --variant cf --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 0 --device 0
     python train.py --dataset bccd                     # 仅 BCCD 数据集
     python train.py --dataset txl                      # 仅 TXL-PBC 数据集
@@ -175,6 +176,8 @@ def main():
                     help="Focal Loss 按 BCE 总量归一化, 保持与 BCE 相近的量纲 (默认开启)")
     ap.add_argument("--freeze-epochs", type=int, default=0,
                     help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 10)")
+    ap.add_argument("--freeze-layers", type=int, default=10,
+                    help="阶段1冻结的 backbone 层数 (yolov8n 主干共 10 层, 默认冻结 10)")
     ap.add_argument("--unfreeze-lr", type=float, default=0.005,
                     help="解冻后精调阶段的学习率 lr0 (文档: 低学习率精调)")
     ap.add_argument("--out", default=None, help="输出权重文件名 (默认 weights/<variant>.pt)")
@@ -225,7 +228,7 @@ def main():
     if args.freeze_epochs > 0:
         print(f"\n[阶段1] 冻结 backbone, 训练检测头 {args.freeze_epochs} 轮 ...")
         overrides1 = build_overrides(args, freeze_name, PRETRAINED,
-                                     args.freeze_epochs, freeze=10, lr0=args.lr0)
+                                     args.freeze_epochs, freeze=args.freeze_layers, lr0=args.lr0)
         run_phase(overrides1, args, args.variant)
         phase2_model = os.path.join(WEIGHTS_DIR, freeze_name, "weights", "best.pt")
         phase2_epochs = args.epochs - args.freeze_epochs
