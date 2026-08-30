@@ -23,7 +23,7 @@ import torch
 
 from flask import Flask, render_template, request, jsonify, send_file
 
-from components.core.cell_detector import CellDetector
+from components.detector import CellDetector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # 兼容旧权重: 旧 checkpoint 里 focal_loss/cbam 是顶层模块, 反序列化时需能 import 到它们

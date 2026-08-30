@@ -1,19 +1,13 @@
 # -*- coding: utf-8 -*-
 """血细胞检测 —— 摄像头实时检测 UI。
 
-严格参照 leagcy/camera_blood.py 继承，仅做两处必要修改：
-  1. 权重路径改为当前的 weights/cf.pt（leagcy 里的 blood_cell_detection/exp1 已不存在）；
-  2. 推理时加 verbose=False，关闭逐帧日志以保障实时性。
-
 用法:
     python camera.py
     按 q 退出
 """
 import os
-import sys
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cv2  # noqa: E402
 from ultralytics import YOLO  # noqa: E402

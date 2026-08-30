@@ -22,35 +22,13 @@ import shutil
 
 import cv2
 
+from components.preprocessing import preprocess_image  # 实现已下沉至 components/preprocessing.py
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SRC = os.path.join(HERE, "dataset", "BCCD_Dataset")
 DEFAULT_DST = os.path.join(HERE, "dataset", "BCCD_Dataset_preprocessed")
 SPLITS = ("train", "val", "test")
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
-
-
-def denoise(img):
-    """组合中值 + 高斯滤波去噪。"""
-    img = cv2.medianBlur(img, 3)
-    img = cv2.GaussianBlur(img, (3, 3), 0)
-    return img
-
-
-def equalize(img):
-    """CLAHE 直方图均衡化 (LAB 的 L 通道), 改善染色不均。"""
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    l = clahe.apply(l)
-    lab = cv2.merge((l, a, b))
-    return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-
-
-def preprocess_image(img, size=640):
-    """对单张图像执行: 去噪 -> 直方图均衡化 -> resize 到 size×size。"""
-    img = denoise(img)
-    img = equalize(img)
-    return cv2.resize(img, (size, size), interpolation=cv2.INTER_LINEAR)
 
 
 def main():

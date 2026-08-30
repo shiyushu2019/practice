@@ -30,10 +30,8 @@ model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 De
 import argparse
 import os
 import shutil
-import sys
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from ultralytics.models.yolo.detect import DetectionTrainer  # noqa: E402
 from ultralytics.nn.tasks import DetectionModel  # noqa: E402

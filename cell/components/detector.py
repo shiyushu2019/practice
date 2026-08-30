@@ -15,12 +15,10 @@ import cv2
 import torch
 from ultralytics import YOLO
 
-from .base_detector import BaseDetector
-
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-class CellDetector(BaseDetector):
+class CellDetector:
     CLASS_NAMES = ["RBC", "WBC", "Platelets"]
     CLASS_CN = {"RBC": "红细胞", "WBC": "白细胞", "Platelets": "血小板"}
     CLASS_COLORS = {"RBC": "#e74c3c", "WBC": "#3498db", "Platelets": "#2ecc71"}
