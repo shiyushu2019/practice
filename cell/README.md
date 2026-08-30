@@ -71,7 +71,7 @@ python -m components.dataset_selection --all --force      # 删除已存在目�
 | 脚本 | 作用 |
 |---|---|
 | `main.sh` | 依次训练 baseline→cbam→cf，再验证与推理（混合数据集，默认超参） |
-| `train.sh` | 训练 cf（γ=2.0、SGD、100 轮、mixed） |
+| `train.sh` | 训练 cf（γ=2.0、类加权 1,1.5,2、SGD、100 轮、mixed） |
 | `eval.sh` | 在混合测试集验证内置权重 |
 | `inf.sh` | 在混合测试集用 cf.pt 推理 |
 | `app.sh` | 启动 Web 检测系统（端口 5000） |
@@ -188,8 +188,8 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | 类加权 | `--class-weights` | 1.0,1.5,2.0 | 未提及（自定义） |
 
 ```bash
-# 文档口径复现（γ=2.0、BCCD、关闭归一化）
-python train.py --variant cf --dataset bccd --gamma 2.0 --no-normalize --device 0
+# 仅 BCCD 数据集（文档原始口径；实测 mAP50≈0.90，达不到文档声称的 0.947）
+python train.py --variant cf --dataset bccd --device 0
 # 完整迁移学习流程（先冻结 10 层训检测头，再解冻全网低 lr 精调）
 python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.005 --device 0
 ```
