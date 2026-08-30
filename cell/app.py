@@ -157,8 +157,13 @@ def processing_loop():
                 if result:
                     task_state["stats"]["success"] += 1
                     task_state["stats"]["total_cells"] += result["total"]
-                    task_state["stats"]["total_conf"] += result["avg_conf"]
-                    task_state["stats"]["avg_conf"] = task_state["stats"]["total_conf"] / task_state["stats"]["success"]
+                    # 每图只返回平均置信度, 乘以细胞数还原该图所有框置信度之和,
+                    # 再除以总细胞数, 得到按框加权的真实全局平均置信度。
+                    task_state["stats"]["total_conf"] += result["avg_conf"] * result["total"]
+                    task_state["stats"]["avg_conf"] = (
+                        task_state["stats"]["total_conf"] / task_state["stats"]["total_cells"]
+                        if task_state["stats"]["total_cells"] else 0.0
+                    )
                     task_state["stats"]["rbc"] += result["counts"]["RBC"]
                     task_state["stats"]["wbc"] += result["counts"]["WBC"]
                     task_state["stats"]["platelets"] += result["counts"]["Platelets"]
@@ -179,8 +184,14 @@ def processing_loop():
         except Exception as e:
             with state_lock:
                 task_state["stats"]["fail"] += 1
+                task_state["stats"]["total_time"] += time.time() - start_proc_time
+                task_state["stats"]["avg_time"] = (
+                    task_state["stats"]["total_time"] / (task_state["stats"]["success"] + task_state["stats"]["fail"])
+                )
                 task_state["logs"].append(f"[{time.strftime('%H:%M:%S')}] Error {filename}: {str(e)}")
                 task_state["current_idx"] += 1
+                if len(task_state["logs"]) > 100:
+                    task_state["logs"] = task_state["logs"][-100:]
 
     with state_lock:
         task_state["running"] = False
@@ -409,7 +420,7 @@ def get_status():
 @app.route('/api/result/image/<filename>')
 def get_result_image(filename):
     safe_path = os.path.abspath(os.path.join(CACHE_DIR, filename))
-    if safe_path.startswith(os.path.abspath(CACHE_DIR)) and os.path.exists(safe_path):
+    if safe_path.startswith(os.path.abspath(CACHE_DIR)) and os.path.isfile(safe_path):
         return send_file(safe_path)
     return jsonify({"error": "File not found"}), 404
 
