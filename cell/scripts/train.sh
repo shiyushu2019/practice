@@ -3,16 +3,15 @@ python train.py \
   --variant cf \
   --device 0 \
   --epochs 100 \
-  --batch 32 \
+  --batch 16 \
   --gamma 2.0 \
   --alpha 0.25 \
-  --class-weights 1.0,1.5,2.0 \
   --freeze-epochs 0 \
-  --unfreeze-lr 0.005 \
+  --unfreeze-lr 0.0001 \
   --dataset mixed \
   --imgsz 640 \
-  --optimizer SGD \
-  --lr0 0.01 \
+  --optimizer Adam \
+  --lr0 0.001 \
   --lrf 0.01 \
   --weight-decay 0.0005 \
   --warmup-epochs 3 \
@@ -24,5 +23,5 @@ python train.py \
   --hsv-h 0.015 \
   --hsv-s 0.7 \
   --hsv-v 0.4 \
-  --patience 100 \
+  --patience 10 \
   --seed 0

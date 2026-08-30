@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 全量训练 + 验证 + 推理 (数据集: 默认混合 BCCD + TXL-PBC; 默认 GPU 0 / batch 32 / 100 轮)
+# 全量训练 + 验证 + 推理 (数据集: 默认混合 BCCD + TXL-PBC; 默认 GPU 1 / batch 16 / 100 轮)
 # 各阶段需依次执行 (存在顺序依赖), 不要并行。
 
 # 阶段1: 基线对照 YOLOv8n
@@ -8,10 +8,9 @@ python train.py --variant baseline --epochs 100 --dataset mixed --device 1
 # 阶段2: YOLOv8n + CBAM
 python train.py --variant cbam --epochs 100 --dataset mixed --device 1
 
-# 阶段3: CF-YOLOv8 (CBAM+Focal), 与 baseline/cbam 一致单阶段训练 100 轮 (freeze=0)
-# γ=2.0 + 归一化 + 类加权1,1.5,2 + lr0=0.01 为当前消融最优配置 (p_t 已用 exp(-ce_loss) 修正)
+# 阶段3: CF-YOLOv8 (CBAM+Focal), 按文档配置 (Adam/lr0=0.001/batch16/patience10)
 python train.py --variant cf --epochs 100 --dataset mixed --device 1 \
-  --gamma 2.0 --normalize --class-weights 1.0,1.5,2.0 --lr0 0.01 --freeze-epochs 0
+  --gamma 2.0 --alpha 0.25 --batch 16 --freeze-epochs 0
 
 # 阶段4: 在混合测试集上验证所有变体
 python eval.py --split test --dataset mixed --device 1 \

@@ -73,11 +73,14 @@ def main():
                   imgsz=args.imgsz, iou=args.iou,
                   plots=False, save=False, verbose=False)
         b = r.box
-        print(f"[{name:<9}] mAP@0.5={b.map50:.4f}  mAP@0.5:0.95={b.map:.4f}  "
-              f"Precision={b.mp:.4f}  Recall={b.mr:.4f}")
-        for i, cls in enumerate(NAMES):
-            if i < len(b.ap50):
-                print(f"           {cls:<10} AP@0.5={b.ap50[i]:.4f}  AP@0.5:0.95={b.ap[i]:.4f}")
+        names = getattr(r, "names", None) or {i: n for i, n in enumerate(NAMES)}
+        print(f"[{name:<9}] mAP@0.5={b.map50:.4f}  mAP@0.5:0.95={b.map:.4f}")
+        # 文档要求: 按类别与 ALL 分别输出 Precision / Recall / mAP@0.5
+        print(f"           {'类别':<10} {'Precision':>10} {'Recall':>10} {'mAP@0.5':>10}")
+        for i in range(b.nc):
+            cls_name = names.get(i, str(i)) if isinstance(names, dict) else names[i]
+            print(f"           {cls_name:<10} {b.p[i]:>10.4f} {b.r[i]:>10.4f} {b.ap50[i]:>10.4f}")
+        print(f"           {'ALL':<10} {b.mp:>10.4f} {b.mr:>10.4f} {b.map50:>10.4f}")
         print()
 
     # 清理 ultralytics 校验时自动创建的空 runs 目录, 保持工作区干净

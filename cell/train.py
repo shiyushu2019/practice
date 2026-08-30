@@ -3,13 +3,11 @@
 用法:
     python train.py --variant baseline          # 纯 YOLOv8n (对照)
     python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
-    python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=2.0, 归一化, 类加权1,1.5,2)
-    python train.py --variant cf --batch 32 --epochs 100
-    python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.005  # 先冻结后解冻
-    python train.py --variant cf --no-normalize   # 关闭 Focal Loss 按 BCE 总量归一化 (默认开启)
+    python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=2.0)
+    python train.py --variant cf --batch 16 --epochs 100
+    python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001  # 先冻结后解冻
     python train.py --variant cf --gamma 2.0     # 调 Focal Loss gamma (文档要求 2.0)
-    python train.py --variant cf --class-weights none  # 关闭类加权 (默认 1.0,1.5,2.0)
-    python train.py --variant cf --imgsz 640 --optimizer SGD --lr0 0.01 --mosaic 0 --device 0
+    python train.py --variant cf --imgsz 640 --optimizer Adam --lr0 0.001 --mosaic 0 --device 0
     python train.py --dataset bccd                     # 仅 BCCD 数据集
     python train.py --dataset txl                      # 仅 TXL-PBC 数据集
     python train.py --dataset mixed                    # 混合两个数据集 (默认)
@@ -18,11 +16,12 @@
 
 对应文档技术路线:
 1. Backbone 的 ConvModule 中嵌入 CBAM 注意力模块 (通道 + 空间双重注意力)。
-2. 替换分类损失函数为 Focal Loss, 配置 alpha=0.25、gamma=2.0、按 BCE 总量归一化
-   (消融实验最优: gamma=2.0、归一化开启; p_t 用 exp(-ce_loss) 几何插值; 类加权 1.0,1.5,2.0)。
-3. SGD 优化器 + 余弦退火, 训练 100 轮。
-4. 迁移学习流程: 先冻结主干训练检测头, 再解冻全网低学习率精调
-   (--freeze-epochs 10; 实测在 BCCD 上单阶段 --freeze-epochs 0 略优, 故默认 0)。
+2. 替换分类损失函数为 Focal Loss, 配置 alpha=0.25、gamma=2.0
+   (仅作用于分类分支, box / dfl 损失保持不变)。
+3. Adam 优化器 (文档实际采用) + 余弦退火, 初始学习率 0.001、batch size 16、
+   早停 patience 10, 训练 100 轮。
+4. 迁移学习流程 (可选 --freeze-epochs): 先冻结主干训练检测头, 再解冻全网低学习率精调。
+   实测在 BCCD 小数据集上单阶段 (--freeze-epochs 0, 即默认) 精度更优。
 
 说明: 之前版本的 CBAM 在原训练脚本里对 model.model 的原地修改会被 ultralytics 在
 model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 DetectionTrainer.get_model()
@@ -31,8 +30,6 @@ model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 De
 import argparse
 import os
 import shutil
-
-import torch
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
@@ -90,13 +87,11 @@ class CBAMFocalTrainer(DetectionTrainer):
         if variant == "cf":
             gamma = float(getattr(self, "focal_gamma", 2.0))
             alpha = float(getattr(self, "focal_alpha", 0.25))
-            normalize = bool(getattr(self, "focal_normalize", False))
             model = self.set_model_names_for_load(
                 FocalDetectionModel(cfg, ch=self.data["channels"], nc=self.data["nc"],
-                                    verbose=verbose, gamma=gamma, alpha=alpha,
-                                    normalize=normalize)
+                                    verbose=verbose, gamma=gamma, alpha=alpha)
             )
-            print(f"  [注入] Focal Loss 已接入 criterion (gamma={gamma}, alpha={alpha}, normalize={normalize})")
+            print(f"  [注入] Focal Loss 已接入 criterion (gamma={gamma}, alpha={alpha})")
         else:
             model = self.set_model_names_for_load(
                 DetectionModel(cfg, ch=self.data["channels"], nc=self.data["nc"], verbose=verbose)
@@ -106,11 +101,6 @@ class CBAMFocalTrainer(DetectionTrainer):
             print(f"  [注入] CBAM 已嵌入 backbone Conv 层 {indices}")
         if weights:
             model.load(weights)
-        if variant == "cf":
-            cw = getattr(self, "class_weights", None)
-            if cw is not None:
-                model.class_weights = torch.tensor(cw, dtype=torch.float32)
-                print(f"  [注入] class_weights={cw}")
         return model
 
 
@@ -165,8 +155,6 @@ def run_phase(overrides, args, variant):
     trainer.variant = variant
     trainer.focal_gamma = args.gamma
     trainer.focal_alpha = args.alpha
-    trainer.focal_normalize = args.normalize
-    trainer.class_weights = getattr(args, "class_weights", None)
     trainer.train()
 
 
@@ -176,18 +164,14 @@ def main():
     ap.add_argument("--device", default="0",
                     help="GPU 编号 (0-7 或 cpu; 默认 0)")
     ap.add_argument("--epochs", type=int, default=100)
-    ap.add_argument("--batch", type=int, default=32)
-    ap.add_argument("--gamma", type=float, default=2.0, help="Focal Loss γ (文档要求 2.0, 消融实测最优)")
+    ap.add_argument("--batch", type=int, default=16)
+    ap.add_argument("--gamma", type=float, default=2.0, help="Focal Loss γ (文档要求 2.0)")
     ap.add_argument("--alpha", type=float, default=0.25)
-    ap.add_argument("--class-weights", default="1.0,1.5,2.0",
-                    help="类别权重 (RBC,WBC,Platelets), 逗号分隔; 默认 1.0,1.5,2.0 (仅 cf 变体生效); 传 none 关闭")
-    ap.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=True,
-                    help="Focal Loss 按 BCE 总量归一化, 保持与 BCE 相近的量纲 (默认开启)")
     ap.add_argument("--freeze-epochs", type=int, default=0,
-                    help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 10)")
+                    help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习流程可设 10)")
     ap.add_argument("--freeze-layers", type=int, default=10,
                     help="阶段1冻结的 backbone 层数 (yolov8n 主干共 10 层, 默认冻结 10)")
-    ap.add_argument("--unfreeze-lr", type=float, default=0.005,
+    ap.add_argument("--unfreeze-lr", type=float, default=0.0001,
                     help="解冻后精调阶段的学习率 lr0 (文档: 低学习率精调)")
     ap.add_argument("--out", default=None, help="输出权重文件名 (默认 weights/<variant>.pt)")
     ap.add_argument("--dataset", default="mixed", choices=["bccd", "txl", "mixed"],
@@ -195,8 +179,8 @@ def main():
     ap.add_argument("--data", default=None,
                     help="数据集 yaml 路径 (指定后覆盖 --dataset)")
     ap.add_argument("--imgsz", type=int, default=640, help="输入图像尺寸")
-    ap.add_argument("--optimizer", default="SGD", help="优化器 (SGD/Adam/AdamW/... )")
-    ap.add_argument("--lr0", type=float, default=0.01, help="初始学习率")
+    ap.add_argument("--optimizer", default="Adam", help="优化器 (SGD/Adam/AdamW/... )")
+    ap.add_argument("--lr0", type=float, default=0.001, help="初始学习率")
     ap.add_argument("--lrf", type=float, default=0.01, help="最终学习率 (lr0 的倍数)")
     ap.add_argument("--weight-decay", type=float, default=0.0005, help="权重衰减")
     ap.add_argument("--warmup-epochs", type=float, default=3, help="warmup 轮数")
@@ -209,16 +193,12 @@ def main():
     ap.add_argument("--hsv-h", type=float, default=0.015, help="HSV-H 扰动")
     ap.add_argument("--hsv-s", type=float, default=0.7, help="HSV-S 扰动")
     ap.add_argument("--hsv-v", type=float, default=0.4, help="HSV-V 扰动")
-    ap.add_argument("--patience", type=int, default=100, help="早停耐心轮数")
+    ap.add_argument("--patience", type=int, default=10, help="早停耐心轮数")
     ap.add_argument("--seed", type=int, default=0, help="随机种子")
     ap.add_argument("--no-deterministic", action="store_true", help="关闭确定性训练")
     ap.add_argument("--no-amp", action="store_true", help="关闭混合精度 (AMP)")
     ap.add_argument("--no-plots", action="store_true", help="不保存训练曲线图")
     args = ap.parse_args()
-    if args.class_weights in (None, "", "none", "off"):
-        args.class_weights = None
-    else:
-        args.class_weights = [float(x) for x in args.class_weights.split(",")]
 
     # 解析数据集 yaml (--data 优先, 否则按 --dataset 选择, 默认 mixed)
     if args.data:

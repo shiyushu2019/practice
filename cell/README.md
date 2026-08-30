@@ -116,8 +116,8 @@ python app.py --weights weights/cbam.pt --device 0
 python camera.py
 ```
 
-说明：程序打开摄像头 0，加载 `weights/cf.pt`，以置信度 0.25 逐帧检测并绘制检测框，按 `q` 退出。
-（`camera.py` 无命令行参数，摄像头编号、权重、置信度均为内置值。）
+说明：程序打开摄像头 0，加载 `weights/cf.pt`，以置信度 0.25 逐帧检测并绘制检测框（检测框 + 类别标签 + 置信度），
+实时输出各类细胞统计计数，按 `q` 退出。（`camera.py` 无命令行参数，摄像头编号、权重、置信度均为内置值。）
 
 
 ## 训练 / 推理 / 验证 (train.py / inf.py / eval.py)
@@ -127,7 +127,7 @@ python camera.py
 先激活 conda 环境，在 `cell` 目录下执行。`--variant` 可选 `baseline` / `cbam` / `cf`。
 
 ```bash
-python train.py --variant cf --device 0 --epochs 100 --batch 32
+python train.py --variant cf --device 0 --epochs 100 --batch 16
 python train.py --variant baseline --device 0                 # 纯 YOLOv8n 对照
 python train.py --variant cbam --device 0                     # YOLOv8n + CBAM
 python train.py --variant cf --dataset bccd --device 0        # 仅 BCCD 数据集
@@ -143,20 +143,18 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | `--variant` | 变体 | `cf`（baseline/cbam/cf） |
 | `--device` | GPU 编号 | `0`（0-7 或 cpu） |
 | `--epochs` | 训练轮数 | `100` |
-| `--batch` | Batch size | `32` |
+| `--batch` | Batch size | `16` |
 | `--gamma` | Focal Loss γ | `2.0` |
 | `--alpha` | Focal Loss α | `0.25` |
-| `--class-weights` | 类别权重 (RBC,WBC,Platelets) | `1.0,1.5,2.0`（`none` 关闭，仅 cf 生效） |
-| `--normalize` | Focal Loss 按 BCE 总量归一化 | 开启（`--no-normalize` 关闭） |
-| `--freeze-epochs` | 冻结主干训练检测头的轮数 | `0`（即不冻结；文档迁移学习为 10） |
+| `--freeze-epochs` | 冻结主干训练检测头的轮数 | `0`（不冻结；文档迁移学习流程可设 10） |
 | `--freeze-layers` | 阶段 1 冻结的 backbone 层数 | `10`（yolov8n 主干共 10 层） |
-| `--unfreeze-lr` | 解冻后精调阶段学习率 | `0.005` |
+| `--unfreeze-lr` | 解冻后精调阶段学习率 | `0.0001` |
 | `--out` | 输出权重文件名 | `weights/<variant>.pt` |
 | `--dataset` | 数据集 | `mixed`（bccd/txl/mixed） |
 | `--data` | 数据集 yaml 路径 | 指定后覆盖 `--dataset` |
 | `--imgsz` | 输入图像尺寸 | `640` |
-| `--optimizer` | 优化器 | `SGD`（SGD/Adam/AdamW/...） |
-| `--lr0` | 初始学习率 | `0.01` |
+| `--optimizer` | 优化器 | `Adam`（SGD/Adam/AdamW/...） |
+| `--lr0` | 初始学习率 | `0.001` |
 | `--lrf` | 最终学习率系数（= lrf × lr0） | `0.01` |
 | `--weight-decay` | 权重衰减 | `0.0005` |
 | `--warmup-epochs` | warmup 轮数 | `3` |
@@ -169,7 +167,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | `--hsv-h` | HSV-H 扰动 | `0.015` |
 | `--hsv-s` | HSV-S 扰动 | `0.7` |
 | `--hsv-v` | HSV-V 扰动 | `0.4` |
-| `--patience` | 早停耐心轮数 | `100` |
+| `--patience` | 早停耐心轮数 | `10` |
 | `--seed` | 随机种子 | `0` |
 | `--no-deterministic` | 关闭确定性训练 | 关闭 |
 | `--no-amp` | 关闭混合精度 AMP | 关闭 |
@@ -182,10 +180,9 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | 旋钮 | 参数 | 默认值 | 文档要求 |
 |---|---|---|---|
 | Focal γ | `--gamma` | 2.0 | 2.0 |
-| 归一化 | `--normalize` / `--no-normalize` | 开启 | 未提及（自定义） |
+| Focal α | `--alpha` | 0.25 | 0.25 |
 | 数据集 | `--dataset bccd/txl/mixed` | mixed | BCCD |
-| 先冻结后解冻 | `--freeze-epochs` / `--freeze-layers` / `--unfreeze-lr` | 0 / 10 / 0.005 | 10 轮冻结→解冻 |
-| 类加权 | `--class-weights` | 1.0,1.5,2.0 | 未提及（自定义） |
+| 先冻结后解冻 | `--freeze-epochs` / `--freeze-layers` / `--unfreeze-lr` | 0 / 10 / 0.0001 | 先冻结主干再解冻精调 |
 
 ```bash
 # 仅 BCCD 数据集（文档原始口径；实测 mAP50≈0.90，达不到文档声称的 0.947）
