@@ -17,7 +17,7 @@ class FocalLoss(nn.Module):
     论文: https://arxiv.org/abs/1708.02002
     """
 
-    def __init__(self, alpha=0.25, gamma=1.5, reduction='mean', normalize=True):
+    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean', normalize=True):
         super(FocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
@@ -74,7 +74,7 @@ class FocalV8DetectionLoss(v8DetectionLoss):
     其余 (box / dfl / 任务对齐分配) 逻辑完全沿用父类。
     """
 
-    def __init__(self, model, gamma: float = 1.5, alpha: float = 0.25, normalize: bool = True):
+    def __init__(self, model, gamma: float = 2.0, alpha: float = 0.25, normalize: bool = True):
         super().__init__(model)
         # reduction='none': 与 v8DetectionLoss 中 self.bce 的调用约定一致,
         # 由父类负责最终的 .sum() / target_scores_sum 归一化。
@@ -89,7 +89,7 @@ class FocalDetectionModel(DetectionModel):
     """
 
     def __init__(self, cfg="yolov8n.yaml", ch=3, nc=None, verbose=True,
-                 gamma: float = 1.5, alpha: float = 0.25, normalize: bool = True):
+                 gamma: float = 2.0, alpha: float = 0.25, normalize: bool = True):
         super().__init__(cfg, ch=ch, nc=nc, verbose=verbose)
         self.focal_gamma = gamma
         self.focal_alpha = alpha

@@ -3,7 +3,7 @@
 用法:
     python train.py --variant baseline          # 纯 YOLOv8n (对照)
     python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
-    python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=1.5, 归一化)
+    python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=2.0, 归一化)
     python train.py --variant cf --batch 32 --epochs 100
     python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.005  # 先冻结后解冻
     python train.py --variant cf --no-normalize   # 关闭 Focal Loss 按 BCE 总量归一化 (默认开启)
@@ -17,8 +17,8 @@
 
 对应文档技术路线:
 1. Backbone 的 ConvModule 中嵌入 CBAM 注意力模块 (通道 + 空间双重注意力)。
-2. 替换分类损失函数为 Focal Loss, 配置 alpha=0.25、gamma=1.5、按 BCE 总量归一化
-   (实测 gamma=2.0 且不归一化会压低分类损失量纲, 导致精度下降)。
+2. 替换分类损失函数为 Focal Loss, 配置 alpha=0.25、gamma=2.0、按 BCE 总量归一化
+   (消融实验最优: gamma=2.0、归一化开启; p_t 用 exp(-ce_loss) 几何插值)。
 3. SGD 优化器 + 余弦退火, 训练 100 轮。
 4. 迁移学习流程: 先冻结主干训练检测头, 再解冻全网低学习率精调
    (--freeze-epochs 10; 实测在 BCCD 上单阶段 --freeze-epochs 0 略优, 故默认 0)。
@@ -168,7 +168,7 @@ def main():
                     help="GPU 编号 (0-7 或 cpu; 默认 0)")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--batch", type=int, default=32)
-    ap.add_argument("--gamma", type=float, default=1.5)
+    ap.add_argument("--gamma", type=float, default=2.0, help="Focal Loss γ (文档要求 2.0, 消融实测最优)")
     ap.add_argument("--alpha", type=float, default=0.25)
     ap.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=True,
                     help="Focal Loss 按 BCE 总量归一化, 保持与 BCE 相近的量纲 (默认开启)")

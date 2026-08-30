@@ -144,7 +144,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | `--device` | GPU 编号 | `0`（0-7 或 cpu） |
 | `--epochs` | 训练轮数 | `100` |
 | `--batch` | Batch size | `32` |
-| `--gamma` | Focal Loss γ | `1.5` |
+| `--gamma` | Focal Loss γ | `2.0` |
 | `--alpha` | Focal Loss α | `0.25` |
 | `--normalize` | Focal Loss 按 BCE 总量归一化 | 开启（`--no-normalize` 关闭） |
 | `--freeze-epochs` | 冻结主干训练检测头的轮数 | `0`（即不冻结；文档迁移学习为 10） |
@@ -180,7 +180,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 
 | 旋钮 | 参数 | 默认值 | 文档要求 |
 |---|---|---|---|
-| Focal γ | `--gamma` | 1.5 | 2.0 |
+| Focal γ | `--gamma` | 2.0 | 2.0 |
 | 归一化 | `--normalize` / `--no-normalize` | 开启 | 未提及（自定义） |
 | 数据集 | `--dataset bccd/txl/mixed` | mixed | BCCD |
 | 先冻结后解冻 | `--freeze-epochs` / `--freeze-layers` / `--unfreeze-lr` | 0 / 10 / 0.005 | 10 轮冻结→解冻 |

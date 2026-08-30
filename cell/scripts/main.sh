@@ -9,7 +9,9 @@ python train.py --variant baseline --epochs 100 --dataset mixed --device 0
 python train.py --variant cbam --epochs 100 --dataset mixed --device 0
 
 # 阶段3: CF-YOLOv8 (CBAM+Focal), 与 baseline/cbam 一致单阶段训练 100 轮 (freeze=0)
-python train.py --variant cf --epochs 100 --dataset mixed --device 0
+# γ=2.0 + 归一化 + lr0=0.01 为当前消融最优配置 (p_t 已用 exp(-ce_loss) 修正)
+python train.py --variant cf --epochs 100 --dataset mixed --device 0 \
+  --gamma 2.0 --normalize --lr0 0.01 --freeze-epochs 0
 
 # 阶段4: 在混合测试集上验证所有变体
 python eval.py --split test --dataset mixed --device 0 \
