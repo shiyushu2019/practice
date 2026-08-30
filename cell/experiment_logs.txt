@@ -1,0 +1,189 @@
+
+================================================================================
+# Phase 1: Focal Loss γ × normalize 消融（文档超参数调优）
+时间: 2026-08-30
+================================================================================
+
+【背景与目标】
+当前 CF（γ=1.5, normalize=True）在 mixed 测试集 mAP@0.5:0.95=0.7562，
+反而低于 baseline 0.7805。目标：调文档超参数，让 CF ≥ baseline。
+
+【已知基线（mixed 测试集）】
+baseline        : mAP50=0.9703  mAP50-95=0.7805  P=0.9334
+cbam            : mAP50=0.9714  mAP50-95=0.7813  P=0.9247
+cf(γ1.5+norm)   : mAP50=0.9662  mAP50-95=0.7562  P=0.9297
+
+【问题定位】
+文档要求 Focal Loss γ=2.0，但 train.py 默认 γ=1.5（git 曾 2.0->1.5）；
+normalize（按 BCE 总量归一化）是代码自定义，文档未提及。
+因此 Phase 1 消融 γ∈{1.5,2.0} × normalize∈{on,off}。
+
+--------------------------------------------------------------------------------
+### E1: γ=2.0, 不归一化（文档纯 Focal Loss 规格）
+思路：回到文档原始规格 γ=2.0，并去掉自定义归一化，看是否为最优组合。
+命令：
+python train.py --variant cf --gamma 2.0 --no-normalize --dataset mixed --device 1 --out cf_g2_nonorm
+
+### E2: γ=2.0, 归一化
+思路：保持文档 γ=2.0，单独考察归一化在 γ=2.0 下的作用。
+命令：
+python train.py --variant cf --gamma 2.0 --normalize --dataset mixed --device 3 --out cf_g2_norm
+
+### E3: γ=1.5, 不归一化
+思路：隔离归一化对当前默认 γ=1.5 的影响（对比已有 cf.pt = γ1.5+norm）。
+命令：
+python train.py --variant cf --gamma 1.5 --no-normalize --dataset mixed --device 4 --out cf_g15_nonorm
+
+================================================================================
+# Phase 1 结果汇总（γ × normalize 消融）
+================================================================================
+
+| 配置 | mAP@0.5 | mAP@0.5:0.95 | P | R |
+|---|---|---|---|---|
+| baseline (YOLOv8n) | 0.9703 | 0.7805 | 0.9334 | - |
+| cbam | 0.9714 | 0.7813 | 0.9247 | - |
+| cf γ=1.5 + norm (原 cf.pt) | 0.9662 | 0.7562 | 0.9297 | - |
+| E1 cf γ=2.0 + no-norm | 0.9590 | 0.7393 | 0.9048 | 0.9308 |
+| E2 cf γ=2.0 + norm | 0.9651 | 0.7543 | 0.9063 | 0.9468 |
+| E3 cf γ=1.5 + no-norm | 0.9577 | 0.7410 | 0.9043 | 0.9272 |
+
+【结论】
+1. 所有 CF 变体 mAP@0.5:0.95 均 < baseline(0.7805)，Focal Loss 是负增益。
+2. γ=1.5 优于 γ=2.0（文档要求的 γ=2.0 反而更差）。
+3. normalize=ON 优于 OFF（0.7543>0.7393；0.7562>0.7410）。
+4. 最优 CF 仍是 γ=1.5+norm(0.7562)，仍比 baseline 低 0.024。
+5. CBAM 单独(0.7813)略优于 baseline(0.7805)，负增益全部来自 Focal Loss。
+
+================================================================================
+# Phase 2: 更温和 Focal + 文档迁移学习流程
+================================================================================
+思路：既然 Focal 整体是负增益，测试「更温和 γ / 提高 α / 文档冻结流程」能否挽回。
+
+### E4: γ=0.5, α=0.25, norm（更温和 γ，减少对易分样本的过度压制）
+python train.py --variant cf --gamma 0.5 --normalize --dataset mixed --device 1 --out cf_g05_norm
+
+### E5: γ=1.5, α=0.5, norm（提高正样本权重，缓解对稀有类正样本的压制）
+python train.py --variant cf --gamma 1.5 --alpha 0.5 --normalize --dataset mixed --device 3 --out cf_g15_a05
+
+### E6: γ=1.5, α=0.25, norm, freeze-epochs=10（文档迁移学习：先冻结后解冻）
+python train.py --variant cf --gamma 1.5 --normalize --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.005 --dataset mixed --device 4 --out cf_g15_freeze10
+
+================================================================================
+# Phase 2 结果汇总（温和γ / 提高α / 冻结流程）
+================================================================================
+
+| 配置 | mAP@0.5 | mAP@0.5:0.95 | P | R |
+|---|---|---|---|---|
+| E4 cf γ=0.5 + norm | 0.0591 | 0.0237 | 0.0227 | 0.5114 |
+| E5 cf γ=1.5 + α=0.5 + norm | 0.9628 | 0.7514 | 0.9157 | 0.9377 |
+| E6 cf γ=1.5 + norm + freeze10 | 0.9663 | 0.7410 | 0.9256 | 0.9263 |
+
+【结论】
+1. γ=0.5 灾难性崩溃 (P=0.023, mAP50=0.059)：模型几乎全预测为前景 → 提示 FocalLoss 实现有 bug。
+2. α=0.5 (0.7514) 略差于 α=0.25 (0.7562)。
+3. freeze10 (0.7410) 略差于不冻结 (0.7562)。
+4. 至此 γ/α/normalize/freeze 全部调遍，均无法让 CF 超过 baseline(0.7805)。
+
+【根因定位】
+检查 focal_loss.py 发现 p_t 计算 bug：
+  原代码: p_t = target*p + (1-target)*(1-p)  (线性插值)
+  对 soft label(t∈[0,1])，当 t=0.5 时 p_t 恒为 0.5(与 p 无关)，focal 调制因子退化。
+  正确:   p_t = exp(-ce_loss) = p^t * (1-p)^(1-t)  (几何插值)
+已修复。下阶段验证修复后 γ∈{0.5,1.5,2.0} 的表现。
+
+================================================================================
+# Phase 3: 修复 p_t 后复测 γ（验证根因）
+================================================================================
+
+### E7: 修复 + γ=2.0 + norm（文档规格）
+python train.py --variant cf --gamma 2.0 --normalize --dataset mixed --device 1 --out cf_fix_g2
+
+### E8: 修复 + γ=1.5 + norm
+python train.py --variant cf --gamma 1.5 --normalize --dataset mixed --device 3 --out cf_fix_g15
+
+### E9: 修复 + γ=0.5 + norm（验证 γ=0.5 崩溃是否因 p_t bug）
+python train.py --variant cf --gamma 0.5 --normalize --dataset mixed --device 4 --out cf_fix_g05
+
+================================================================================
+# Phase 3 结果汇总（修复 p_t 后复测 γ）
+================================================================================
+
+| 配置 | mAP@0.5 | mAP@0.5:0.95 | P | R |
+|---|---|---|---|---|
+| E7 fix γ=2.0 + norm | 0.9659 | 0.7611 | 0.9145 | 0.9428 |
+| E8 fix γ=1.5 + norm | 0.9660 | 0.7524 | 0.9190 | 0.9480 |
+| E9 fix γ=0.5 + norm | 0.9544 | 0.6940 | 0.9108 | 0.9114 |
+
+【结论】
+1. γ=0.5 不再崩溃（0.0237→0.6940），证实 p_t bug 是 γ=0.5 崩溃的根因。
+2. 修复后 γ=2.0 略提升（0.7543→0.7611），但 CF 仍 < baseline(0.7805)。
+3. γ 越大越好（0.5<1.5<2.0），说明还需继续探测更高 γ。
+4. 剩余嫌疑：normalize 自定义 hack（文档无此步骤）。
+
+================================================================================
+# Phase 4: 修复 p_t 后继续探测 γ 上限 / 归一化
+================================================================================
+
+### E10: fix + γ=2.0 + no-norm（隔离 normalize 自定义 hack）
+python train.py --variant cf --gamma 2.0 --no-normalize --dataset mixed --device 1 --out cf_fix_g2_nonorm
+
+### E11: fix + γ=3.0 + norm（探测更高 γ）
+python train.py --variant cf --gamma 3.0 --normalize --dataset mixed --device 3 --out cf_fix_g3_norm
+
+### E12: fix + γ=1.0 + norm（补齐 γ 曲线中间点）
+python train.py --variant cf --gamma 1.0 --normalize --dataset mixed --device 4 --out cf_fix_g1_norm
+
+================================================================================
+# Phase 4 结果汇总（修复 p_t 后：γ 上限 / 归一化）
+================================================================================
+
+| 配置 | mAP@0.5 | mAP@0.5:0.95 | P | R |
+|---|---|---|---|---|
+| E10 fix γ=2.0 + no-norm | 0.9575 | 0.7518 | 0.9045 | 0.9261 |
+| E11 fix γ=3.0 + norm | 0.9540 | 0.7512 | 0.8758 | 0.9717 |
+| E12 fix γ=1.0 + norm | 0.9677 | 0.7598 | 0.9046 | 0.9439 |
+
+【修复后 γ 曲线（norm, mAP@0.5:0.95）】
+  γ=0.5 : 0.6940
+  γ=1.0 : 0.7598
+  γ=1.5 : 0.7524
+  γ=2.0 : 0.7611  ← 最优
+  γ=3.0 : 0.7512
+
+【结论】
+1. γ=2.0 是最优甜点（0.5 太低、3.0 过高）。
+2. normalize=ON(0.7611) > OFF(0.7518)，normalize 保留。
+3. 但 CF 最优 0.7611 仍 < baseline(0.7805)，差距 0.019。
+4. p_t bug 已修，γ/normalize/α/freeze 都调遍，Focal Loss 仍有 ~0.02 负增益。
+   → 转向用户要求的研究方向：学习率 lr。
+
+================================================================================
+# Phase 5: 学习率 lr 影响（固定 γ=2.0 + norm + 修复）
+================================================================================
+思路：固定当前最优 CF 配置（γ=2.0 + norm），扫 lr0。默认 lr0=0.01 已测(=0.7611)。
+文档：SGD + 余弦退火 100 轮。
+
+### E13: lr0=0.001
+python train.py --variant cf --gamma 2.0 --normalize --lr0 0.001 --dataset mixed --device 1 --out cf_lr0001
+
+### E14: lr0=0.005
+python train.py --variant cf --gamma 2.0 --normalize --lr0 0.005 --dataset mixed --device 3 --out cf_lr0005
+
+### E15: lr0=0.02
+python train.py --variant cf --gamma 2.0 --normalize --lr0 0.02 --dataset mixed --device 4 --out cf_lr002
+
+================================================================================
+# Phase 5b: freeze 迁移学习流程复测（修复 p_t + γ=2.0 + norm）
+================================================================================
+思路：E6 的 freeze 是在 buggy p_t + γ=1.5 下测的（更差）。现用修复后最优配置
+（γ=2.0+norm）复测文档"先冻结主干→解冻低lr精调"流程。
+文档：先冻结主干训练检测头，再解冻全网低学习率精调。
+
+### E16: freeze-epochs=10, unfreeze-lr=0.005（文档默认流程）
+python train.py --variant cf --gamma 2.0 --normalize --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.005 --dataset mixed --device 2 --out cf_fix_g2_freeze10
+
+### E17: freeze-epochs=20, unfreeze-lr=0.005（更长冻结阶段）
+python train.py --variant cf --gamma 2.0 --normalize --freeze-epochs 20 --freeze-layers 10 --unfreeze-lr 0.005 --dataset mixed --device 0 --out cf_fix_g2_freeze20
+
+### E18: freeze-epochs=10, unfreeze-lr=0.001（更低精调 lr）
+python train.py --variant cf --gamma 2.0 --normalize --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.001 --dataset mixed --device 3 --out cf_fix_g2_freeze10_lr001

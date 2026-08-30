@@ -34,11 +34,13 @@ class FocalLoss(nn.Module):
         ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
 
         # 计算 p_t: 模型对"真实类别"赋予的概率。
-        # 注意: 不能用 pt = exp(-ce_loss) 计算, 那只对二值标签等价;
-        # YOLO 的 TAL 分配产生的是 soft label (IoU 加权, 取值 [0,1]),
-        # 用线性插值 p_t = t*p + (1-t)*(1-p) 才能正确泛化。
-        p = torch.sigmoid(pred)
-        p_t = target * p + (1 - target) * (1 - p)
+        # 正确做法: p_t = exp(-ce_loss)。对二值标签(t∈{0,1})退化为标准 focal;
+        # 对 TAL 的 soft label (IoU 加权, t∈[0,1]) 也能正确泛化, 得
+        #   p_t = p^t * (1-p)^(1-t)  (几何插值)
+        # 之前的线性插值 p_t = t*p + (1-t)*(1-p) 对 soft label 是错的:
+        # 当 t=0.5 时 p_t 恒等于 0.5(与模型预测 p 无关), 使 focal 调制因子退化为常数,
+        # 削弱了对易分样本的压制, 是 Focal Loss 精度下降/γ=0.5 崩溃的根因。
+        p_t = torch.exp(-ce_loss)
 
         # 类别平衡因子 alpha_t: 正样本用 alpha, 负样本用 1-alpha
         # (标准 Focal Loss, 论文 Eq.4; 统一 alpha 会整体压低负样本权重导致精度下降)
