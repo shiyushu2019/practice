@@ -6,6 +6,7 @@ python train.py \
   --batch 32 \
   --gamma 2.0 \
   --alpha 0.25 \
+  --class-weights 1.0,1.5,2.0 \
   --freeze-epochs 0 \
   --unfreeze-lr 0.005 \
   --dataset mixed \

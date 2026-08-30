@@ -146,6 +146,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | `--batch` | Batch size | `32` |
 | `--gamma` | Focal Loss γ | `2.0` |
 | `--alpha` | Focal Loss α | `0.25` |
+| `--class-weights` | 类别权重 (RBC,WBC,Platelets) | `1.0,1.5,2.0`（`none` 关闭，仅 cf 生效） |
 | `--normalize` | Focal Loss 按 BCE 总量归一化 | 开启（`--no-normalize` 关闭） |
 | `--freeze-epochs` | 冻结主干训练检测头的轮数 | `0`（即不冻结；文档迁移学习为 10） |
 | `--freeze-layers` | 阶段 1 冻结的 backbone 层数 | `10`（yolov8n 主干共 10 层） |
@@ -176,7 +177,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 
 训练完成后 best 权重统一保存到 `weights/<variant>.pt`（或 `--out` 指定的文件）。
 
-**消融调试要点**（以下四个旋钮均可单独命令行控制，无需改代码）：
+**消融调试要点**（以下五个旋钮均可单独命令行控制，无需改代码）：
 
 | 旋钮 | 参数 | 默认值 | 文档要求 |
 |---|---|---|---|
@@ -184,6 +185,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | 归一化 | `--normalize` / `--no-normalize` | 开启 | 未提及（自定义） |
 | 数据集 | `--dataset bccd/txl/mixed` | mixed | BCCD |
 | 先冻结后解冻 | `--freeze-epochs` / `--freeze-layers` / `--unfreeze-lr` | 0 / 10 / 0.005 | 10 轮冻结→解冻 |
+| 类加权 | `--class-weights` | 1.0,1.5,2.0 | 未提及（自定义） |
 
 ```bash
 # 文档口径复现（γ=2.0、BCCD、关闭归一化）

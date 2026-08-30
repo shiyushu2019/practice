@@ -241,3 +241,48 @@ baseline 0.7534 | cbam 0.7501 | cf(γ=2.0+修复) 0.7611
    python eval.py --split test --dataset mixed --weights weights/cf.pt,weights/cbam.pt,weights/baseline.pt --device 0
 2. 不要用 checkpoint 里 train_metrics 的 val 值去和 test 值对比；
 3. train.py 末尾的 val(split="test") 只作为单次训练的快捷参考，横向对比必须走 eval.py。
+
+================================================================================
+# Phase 6: P2 类加权 Focal Loss + P3 BCCD-only 验证
+================================================================================
+P2 思路: 当前 Focal 用单一 α(前景/背景平衡), 未对准文档"红白细胞长尾"目标。
+  用 ultralytics 内置 model.class_weights 机制做 per-class 加权, 提升低 AP 类。
+  当前各类 AP(test, cf.pt): RBC 0.7985 / WBC 0.8359 / Platelets 0.6490(瓶颈)。
+改动: train.py 新增 --class-weights "wRBC,wWBC,wPlatelets" (默认不启用)。
+
+### E19: cf + class_weights 1.0,1.0,2.0 (只提血小板)
+python train.py --variant cf --gamma 2.0 --normalize --class-weights 1.0,1.0,2.0 --dataset mixed --device 1 --out cf_cw_102
+
+### E20: cf + class_weights 1.0,1.5,2.0 (提白细胞+血小板)
+python train.py --variant cf --gamma 2.0 --normalize --class-weights 1.0,1.5,2.0 --dataset mixed --device 4 --out cf_cw_122
+
+P3 思路: 在文档原始数据集 BCCD 上复现, 验证文档声称的 mAP@0.5≈0.947。
+
+### E21: baseline on bccd
+python train.py --variant baseline --dataset bccd --device 2 --out baseline_bccd
+
+### E22: cf(γ=2.0+norm) on bccd
+python train.py --variant cf --gamma 2.0 --normalize --dataset bccd --device 0 --out cf_bccd
+
+================================================================================
+# Phase 6 结果汇总（P2 类加权 Focal + P3 BCCD 验证）
+================================================================================
+
+【P2 mixed test】
+| 配置 | mAP@0.5:0.95 | RBC | WBC | Platelets |
+|---|---|---|---|---|
+| cf.pt (无权重) | 0.7611 | 0.7985 | 0.8359 | 0.6490 |
+| cf_cw_102 (1,1,2) | 0.7511 | 0.7945 | 0.8319 | 0.6270 |
+| cf_cw_122 (1,1.5,2) | 0.7628 | 0.7965 | 0.8405 | 0.6515 |
+→ 类加权收益极小: 只有 "1,1.5,2" 微升(+0.002, 接近噪声); 只提血小板(1,1,2)反而有害(血小板 0.649→0.627)。
+
+【P3 bccd test】
+| 配置 | mAP@0.5 | mAP@0.5:0.95 | RBC | WBC | Platelets |
+|---|---|---|---|---|---|
+| baseline_bccd | 0.9221 | 0.6125 | 0.5619 | 0.7662 | 0.5092 |
+| cf_bccd | 0.9027 | 0.6119 | 0.5558 | 0.7783 | 0.5016 |
+→ BCCD 上 CF 略逊 baseline(mAP50 -0.019); 且两者 mAP50 均 0.90-0.92, 无法复现文档声称的 0.947。
+
+【总结论】
+1. 类加权 Focal 无实质提升, 不采纳。
+2. 文档 94.7% 在 BCCD 上无法复现(实测 mAP50≈0.90-0.92)。
