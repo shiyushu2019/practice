@@ -19,7 +19,6 @@ data.json
 liter/data/
 
 # -------cell---------
-cell/doc.txt
 cell/weights/
 cell/leagcy/
 cell/dataset/BCCD_Dataset_preprocessed/
