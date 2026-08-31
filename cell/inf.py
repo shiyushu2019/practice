@@ -11,6 +11,7 @@
 """
 import argparse
 import os
+import time
 from collections import Counter
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
@@ -39,6 +40,7 @@ def main():
     ap.add_argument("--save", action="store_true", help="保存绘制了检测框的结果图")
     ap.add_argument("--save-txt", action="store_true", help="保存 YOLO 标签 txt")
     ap.add_argument("--save-conf", action="store_true", help="标签 txt 附带置信度")
+    ap.add_argument("--benchmark", action="store_true", help="FPS 基准测试 (统计平均推理速度)")
     args = ap.parse_args()
 
     # 参数范围保护: 越界值静默夹取到合法区间, 避免实验时手误
@@ -66,6 +68,20 @@ def main():
         images = [args.source]
     else:
         print(f"❌ 找不到文件或目录: {args.source}")
+        return
+
+    if args.benchmark:
+        # 预热一次 (首次推理含模型加载/图构建开销), 再统计纯推理吞吐
+        _ = model(images[0], conf=args.conf, imgsz=args.imgsz, iou=args.iou,
+                  max_det=args.max_det, device=args.device, verbose=False)
+        t0 = time.time()
+        for img in images:
+            _ = model(img, conf=args.conf, imgsz=args.imgsz, iou=args.iou,
+                      max_det=args.max_det, device=args.device, verbose=False)
+        elapsed = time.time() - t0
+        n = len(images)
+        print(f"⚡ FPS 基准: {n} 张图, 总耗时 {elapsed:.2f}s, "
+              f"平均 {elapsed / n * 1000:.1f} ms/张, {n / elapsed:.2f} FPS")
         return
 
     for img in images:

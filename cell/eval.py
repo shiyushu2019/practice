@@ -20,11 +20,13 @@ from components.dataset_selection import resolve_yaml, ensure_dataset_ready  # n
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_DIR = os.path.join(HERE, "weights")
+RESULTS_DIR = os.path.join(HERE, "results")
 
 MODELS = {
     "baseline": os.path.join(WEIGHTS_DIR, "baseline.pt"),
-    "cbam": os.path.join(WEIGHTS_DIR, "cbam.pt"),
     "focal": os.path.join(WEIGHTS_DIR, "focal.pt"),
+    "cbam": os.path.join(WEIGHTS_DIR, "cbam.pt"),
+    "dams": os.path.join(WEIGHTS_DIR, "dams.pt"),
     "cf": os.path.join(WEIGHTS_DIR, "cf.pt"),
 }
 NAMES = ["RBC", "WBC"]
@@ -43,6 +45,9 @@ def main():
     ap.add_argument("--iou", type=float, default=0.7, help="验证 NMS 的 IoU 阈值")
     ap.add_argument("--weights", default=None,
                     help="逗号分隔的权重路径; 不指定则评估内置 MODELS")
+    ap.add_argument("--plots", action=argparse.BooleanOptionalAction, default=True,
+                    help="保存混淆矩阵/PR 曲线 (默认开启; 用 --no-plots 关闭)")
+    ap.add_argument("--project", default=RESULTS_DIR, help="结果输出目录 (混淆矩阵/PR 曲线)")
     args = ap.parse_args()
 
     # 参数范围保护: IoU 越界时静默夹取到 [0, 1]
@@ -72,7 +77,8 @@ def main():
         m = YOLO(path)
         r = m.val(data=args.data, split=args.split, device=args.device,
                   imgsz=args.imgsz, iou=args.iou,
-                  plots=False, save=False, verbose=False)
+                  project=args.project, name=f"{name}_{args.split}", exist_ok=True,
+                  plots=args.plots, save=False, verbose=False)
         b = r.box
         names = getattr(r, "names", None) or {i: n for i, n in enumerate(NAMES)}
         print(f"[{name:<9}] mAP@0.5={b.map50:.4f}  mAP@0.5:0.95={b.map:.4f}")
@@ -82,6 +88,8 @@ def main():
             cls_name = names.get(i, str(i)) if isinstance(names, dict) else names[i]
             print(f"           {cls_name:<10} {b.p[i]:>10.4f} {b.r[i]:>10.4f} {b.ap50[i]:>10.4f}")
         print(f"           {'ALL':<10} {b.mp:>10.4f} {b.mr:>10.4f} {b.map50:>10.4f}")
+        if args.plots:
+            print(f"           [图] 混淆矩阵/PR 曲线 -> {os.path.join(args.project, f'{name}_{args.split}')}")
         print()
 
     # 清理 ultralytics 校验时自动创建的空 runs 目录, 保持工作区干净

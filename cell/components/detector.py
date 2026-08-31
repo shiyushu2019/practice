@@ -88,6 +88,17 @@ class CellDetector:
         confs = [float(b.conf) for b in r.boxes]
         avg_conf = sum(confs) / len(confs) if confs else 0.0
 
+        # 逐框结果 (SDK 输出: 检测框 xyxy + 类别 + 置信度)
+        boxes = [
+            {
+                "cls": int(b.cls),
+                "name": self.CLASS_NAMES[int(b.cls)],
+                "conf": round(float(b.conf), 4),
+                "xyxy": [round(float(v), 2) for v in b.xyxy[0].tolist()],
+            }
+            for b in r.boxes
+        ]
+
         annotated = r.plot()  # BGR，已绘制检测框与标签
 
         return {
@@ -96,6 +107,7 @@ class CellDetector:
             "result_b64": self._img_to_b64(annotated),
             "counts": {c: counts.get(c, 0) for c in self.CLASS_NAMES},
             "total": total,
+            "boxes": boxes,
             "avg_conf": round(avg_conf, 4),
             "cost_ms": round(cost_ms, 1),
             "report": self._build_report(counts, total, avg_conf, cost_ms),

@@ -4,7 +4,9 @@
     python train.py --variant baseline          # 纯 YOLOv8n (对照)
     python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
     python train.py --variant focal             # YOLOv8n + Focal Loss (消融: +Focal Loss)
+    python train.py --variant dams              # YOLOv8n + DAMS-Net (消融: +DAMS-Net)
     python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=2.0)
+    python train.py --variant cf --dams         # 完整 CF-YOLOv8 (CBAM + Focal + DAMS-Net)
     python train.py --variant cf --batch 16 --epochs 100
     python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001  # 先冻结后解冻
     python train.py --variant cf --gamma 2.0     # 调 Focal Loss gamma (文档要求 2.0)
@@ -41,10 +43,12 @@ from ultralytics import YOLO  # noqa: E402
 
 from components.cbam import CBAMConv  # noqa: E402
 from components.focal_loss import FocalDetectionModel  # noqa: E402
+from components.dams import inject_dams  # noqa: E402
 from components.dataset_selection import resolve_yaml, ensure_dataset_ready  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_DIR = os.path.join(HERE, "weights")
+RESULTS_DIR = os.path.join(HERE, "results")
 PRETRAINED = os.path.join(WEIGHTS_DIR, "yolov8n.pt")
 
 
@@ -100,6 +104,9 @@ class CBAMFocalTrainer(DetectionTrainer):
         if variant in ("cbam", "cf"):
             indices = inject_cbam(model)
             print(f"  [注入] CBAM 已嵌入 backbone Conv 层 {indices}")
+        if getattr(self, "dams", False):
+            idx = inject_dams(model)
+            print(f"  [注入] DAMS-Net 已包装 Detect 头 (index={idx})")
         if weights:
             model.load(weights)
         return model
@@ -110,9 +117,23 @@ def verify(path):
     m = YOLO(path)
     types = {type(x).__name__ for x in m.model.modules()}
     has_cbam = any("CBAM" in t for t in types)
+    has_dams = any("DAMS" in t for t in types)
     n_params = sum(p.numel() for p in m.model.parameters())
-    print(f"  [校验] {os.path.basename(path)}: 含 CBAM 模块={has_cbam}, 参数量={n_params}")
+    print(f"  [校验] {os.path.basename(path)}: 含 CBAM={has_cbam}, 含 DAMS={has_dams}, 参数量={n_params}")
     return has_cbam
+
+
+def _preserve_artifacts(src_dir, dst_dir):
+    """把训练生成的混淆矩阵 / PR 曲线 / 训练记录复制到 results/ 下, 避免随 run 目录被删。"""
+    if not os.path.isdir(src_dir):
+        return
+    os.makedirs(dst_dir, exist_ok=True)
+    for name in os.listdir(src_dir):
+        if name.endswith((".png", ".csv")):
+            src = os.path.join(src_dir, name)
+            if os.path.isfile(src):
+                shutil.copy2(src, os.path.join(dst_dir, name))
+    print(f"  [留存] 混淆矩阵/PR 曲线/训练记录 -> {dst_dir}")
 
 
 def build_overrides(args, name, model, epochs, freeze, lr0):
@@ -150,10 +171,11 @@ def build_overrides(args, name, model, epochs, freeze, lr0):
     }
 
 
-def run_phase(overrides, args, variant):
+def run_phase(overrides, args, variant, dams=False):
     """执行一个训练阶段 (冻结 or 解冻)。"""
     trainer = CBAMFocalTrainer(overrides=overrides, _callbacks=None)
     trainer.variant = variant
+    trainer.dams = dams
     trainer.focal_gamma = args.gamma
     trainer.focal_alpha = args.alpha
     trainer.train()
@@ -161,13 +183,15 @@ def run_phase(overrides, args, variant):
 
 def main():
     ap = argparse.ArgumentParser(description="统一训练脚本 (CBAM/Focal 按文档实现)")
-    ap.add_argument("--variant", default="cf", choices=["baseline", "cbam", "focal", "cf"])
+    ap.add_argument("--variant", default="cf", choices=["baseline", "cbam", "focal", "dams", "cf"])
     ap.add_argument("--device", default="0",
                     help="GPU 编号 (0-7 或 cpu; 默认 0)")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--gamma", type=float, default=2.0, help="Focal Loss γ (文档要求 2.0)")
     ap.add_argument("--alpha", type=float, default=0.25)
+    ap.add_argument("--dams", action="store_true",
+                    help="追加 DAMS-Net 动态多尺度融合 (如 --variant cf --dams = 完整 CF-YOLOv8)")
     ap.add_argument("--freeze-epochs", type=int, default=10,
                     help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 先冻结后解冻)")
     ap.add_argument("--freeze-layers", type=int, default=10,
@@ -208,7 +232,18 @@ def main():
         data_yaml = ensure_dataset_ready(args.dataset)
     args.data = data_yaml
 
-    out_stem = os.path.splitext(os.path.basename(args.out))[0] if args.out else args.variant
+    # DAMS-Net: --variant dams 等价于 baseline+dams; --dams 可叠加到任意变体
+    base_variant = "baseline" if args.variant == "dams" else args.variant
+    use_dams = args.dams or args.variant == "dams"
+
+    if args.out:
+        out_stem = os.path.splitext(os.path.basename(args.out))[0]
+    elif args.variant == "dams":
+        out_stem = "dams"
+    elif args.dams:
+        out_stem = f"{args.variant}_dams"
+    else:
+        out_stem = args.variant
     train_name = f"_{out_stem}_train"
     freeze_name = f"_{out_stem}_freeze"
 
@@ -223,7 +258,7 @@ def main():
         print(f"\n[阶段1] 冻结 backbone, 训练检测头 {args.freeze_epochs} 轮 ...")
         overrides1 = build_overrides(args, freeze_name, PRETRAINED,
                                      args.freeze_epochs, freeze=args.freeze_layers, lr0=args.lr0)
-        run_phase(overrides1, args, args.variant)
+        run_phase(overrides1, args, base_variant, use_dams)
         phase2_model = os.path.join(WEIGHTS_DIR, freeze_name, "weights", "best.pt")
         phase2_epochs = args.epochs - args.freeze_epochs
         phase2_lr0 = args.unfreeze_lr  # 文档: 解冻后低学习率精调
@@ -236,7 +271,7 @@ def main():
     print(f"\n[阶段2] 解冻全网, 低学习率精调 {phase2_epochs} 轮 (lr0={phase2_lr0}) ...")
     overrides2 = build_overrides(args, train_name, phase2_model,
                                  phase2_epochs, freeze=None, lr0=phase2_lr0)
-    run_phase(overrides2, args, args.variant)
+    run_phase(overrides2, args, base_variant, use_dams)
 
     # 统一保存 best 权重
     out_dir = os.path.join(WEIGHTS_DIR, train_name)
@@ -245,8 +280,9 @@ def main():
         out_name = args.out if args.out.endswith(".pt") else args.out + ".pt"
         dst = os.path.join(WEIGHTS_DIR, out_name)
     else:
-        dst = os.path.join(WEIGHTS_DIR, f"{args.variant}.pt")
+        dst = os.path.join(WEIGHTS_DIR, f"{out_stem}.pt")
     shutil.copy2(best, dst)
+    _preserve_artifacts(out_dir, os.path.join(RESULTS_DIR, f"{out_stem}_train"))
     shutil.rmtree(out_dir, ignore_errors=True)
     if args.freeze_epochs > 0:
         shutil.rmtree(os.path.join(WEIGHTS_DIR, freeze_name), ignore_errors=True)

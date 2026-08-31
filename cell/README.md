@@ -2,9 +2,9 @@
 
 基于改进型 YOLOv8n（CBAM 注意力 + Focal Loss）的血细胞检测实验与演示系统，实验文档见 `doc.txt`。
 
-- 模型变体：`baseline`（纯 YOLOv8n 对照）/ `focal`（YOLOv8n + Focal Loss）/ `cbam`（YOLOv8n + CBAM）/ `cf`（YOLOv8n + CBAM + Focal Loss，即 CF-YOLOv8）
+- 模型变体：`baseline`（纯 YOLOv8n 对照）/ `focal`（YOLOv8n + Focal Loss）/ `cbam`（YOLOv8n + CBAM）/ `dams`（YOLOv8n + DAMS-Net）/ `cf`（YOLOv8n + CBAM + Focal Loss，即 CF-YOLOv8；完整版为 `--variant cf --dams`）
 - 检测类别：`RBC` 红细胞 / `WBC` 白细胞（文档口径，仅两类）
-- 功能：训练（`train.py`）、推理（`inf.py`）、验证（`eval.py`）、Web 演示（`app.py`）、摄像头实时检测（`camera.py`）
+- 功能：训练（`train.py`）、推理（`inf.py`）、验证（`eval.py`）、Web 演示（`app.py`）、摄像头实时检测（`camera.py`）、VOC→YOLO 转换（`convert_voc_to_yolo.py`）、模型轻量化（`lightweight.py`）
 
 ## 环境准备
 
@@ -81,6 +81,10 @@ python -m components.dataset_selection --all --force      # 删除已存在目�
 ```bash
 bash scripts/main.sh
 ```
+
+> 文档补齐项：`--variant dams`（DAMS-Net 消融）与 `--variant cf --dams`（完整 CF-YOLOv8，权重名 `cf_dams.pt`）；
+> `eval.py --plots` 会把混淆矩阵/PR 曲线存到 `cell/results/`；`inf.py --benchmark` 输出 FPS；
+> `convert_voc_to_yolo.py` 完成 VOC→YOLO 转换；`lightweight.py quantize/prune` 做 INT8 量化与结构化剪枝（知识蒸馏待后续）。
 
 ## 实验结果（mixed 2 类 · BCCD + TXL-PBC）
 
