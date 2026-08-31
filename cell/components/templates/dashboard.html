@@ -194,11 +194,6 @@
                   <p class="text-xl font-black text-[#0EA5E9] tabular-nums" id="wbc-count">0</p>
                   <p class="text-[9px] text-brand-muted mt-0.5">白细胞</p>
                 </div>
-                <div class="bg-brand-gray/50 rounded-2xl p-4 border border-gray-100/50 text-center">
-                  <div class="flex items-center justify-center gap-1.5 mb-1"><span class="cell-dot" style="background:#16A34A"></span><p class="text-[10px] font-black text-brand-muted uppercase">PLT</p></div>
-                  <p class="text-xl font-black text-[#16A34A] tabular-nums" id="plt-count">0</p>
-                  <p class="text-[9px] text-brand-muted mt-0.5">血小板</p>
-                </div>
               </div>
             </div>
 
@@ -338,7 +333,6 @@
           <div class="space-y-2 text-sm">
             <div class="flex items-center gap-2"><span class="cell-dot" style="background:#DC2626"></span><span class="font-bold text-brand-dark">RBC</span><span class="text-brand-muted text-xs">红细胞 (Red Blood Cell)</span></div>
             <div class="flex items-center gap-2"><span class="cell-dot" style="background:#0EA5E9"></span><span class="font-bold text-brand-dark">WBC</span><span class="text-brand-muted text-xs">白细胞 (White Blood Cell)</span></div>
-            <div class="flex items-center gap-2"><span class="cell-dot" style="background:#16A34A"></span><span class="font-bold text-brand-dark">PLT</span><span class="text-brand-muted text-xs">血小板 (Platelets)</span></div>
           </div>
         </section>
       </div>
@@ -417,9 +411,9 @@
     createLinear("CBAM 注意力模块", pCBAM.x, pCBAM.y, pCBAM.z, 1.2, 1.4, colorCBAM, "通道+空间双重注意力，聚焦细胞核与边缘纹理");
     createStacked("Neck 特征金字塔", pNeck.x, pNeck.y, pNeck.z, 4, 2.5, colorNeck, "FPN+PAN 多尺度特征融合，适应小目标");
     createLinear("检测头", pHead.x, pHead.y, pHead.z, 0.6, 1.4, colorHead, "分类 + 回归，输出检测框与置信度");
-    createLinear("检测结果", pOut.x, pOut.y, pOut.z, 0.2, 2.5, colorOutput, "RBC / WBC / PLT 标注可视化");
+    createLinear("检测结果", pOut.x, pOut.y, pOut.z, 0.2, 2.5, colorOutput, "RBC / WBC 标注可视化");
     createLinear("Focal Loss", pFocal.x, pFocal.y, pFocal.z, 1.0, 1.0, colorLoss, "α=0.25, γ=2.0，缓解类别长尾分布");
-    createLinear("类别统计", pClass.x, pClass.y, pClass.z, 1.0, 1.2, colorStats, "红细胞 / 白细胞 / 血小板计数");
+    createLinear("类别统计", pClass.x, pClass.y, pClass.z, 1.0, 1.2, colorStats, "红细胞 / 白细胞计数");
 
     createFlow(pIn, new THREE.Vector3(pBack.x-1.5, pBack.y, 0), colorInput, true, 1.5);
     createFlow(new THREE.Vector3(pBack.x+1.5, pBack.y, 0), pCBAM, colorBackbone);
@@ -543,7 +537,7 @@
                 <div class="flex justify-between"><span class="text-brand-muted">改进点</span><span class="font-bold">CBAM + Focal Loss</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">当前权重</span><span class="font-bold text-brand-primary">${info.weights || '--'}</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">推理设备</span><span class="font-bold">${deviceLabel}（自动选择）</span></div>
-                <div class="flex justify-between"><span class="text-brand-muted">类别</span><span class="font-bold">RBC / WBC / PLT</span></div>`;
+                <div class="flex justify-between"><span class="text-brand-muted">类别</span><span class="font-bold">RBC / WBC</span></div>`;
             return info;
         } catch (e) {
             document.getElementById('model-info-box').innerHTML = '<p class="text-red-500 text-xs">模型信息加载失败</p>';
@@ -738,7 +732,6 @@
             document.getElementById('fail-count').textContent = data.stats.fail;
             document.getElementById('rbc-count').textContent = data.stats.rbc;
             document.getElementById('wbc-count').textContent = data.stats.wbc;
-            document.getElementById('plt-count').textContent = data.stats.platelets;
             if(data.stats.total > 0) {
                 const pct = (data.stats.success + data.stats.fail) / data.stats.total * 100;
                 document.getElementById('progress-bar').style.width = pct + '%';
@@ -755,7 +748,7 @@
                 lastDrawnFile = data.latest_result.filename;
                 document.getElementById('current-conf').textContent = data.latest_result.avg_conf.toFixed(3);
                 document.getElementById('current-counts').textContent =
-                    `RBC ${data.latest_result.counts.RBC} · WBC ${data.latest_result.counts.WBC} · PLT ${data.latest_result.counts.Platelets}`;
+                    `RBC ${data.latest_result.counts.RBC} · WBC ${data.latest_result.counts.WBC}`;
                 typeWriterEffect(document.getElementById('report-text'), data.latest_result.report || '暂无检测报告', 20);
             }
         }
@@ -846,7 +839,7 @@
         document.getElementById('result-img').src = item.result_url;
         document.getElementById('current-conf').textContent = item.avg_conf.toFixed(3);
         document.getElementById('current-counts').textContent =
-            `RBC ${item.counts.RBC} · WBC ${item.counts.WBC} · PLT ${item.counts.Platelets}`;
+            `RBC ${item.counts.RBC} · WBC ${item.counts.WBC}`;
 
         typeWriterEffect(document.getElementById('report-text'), item.report || '暂无检测报告', 0);
     };

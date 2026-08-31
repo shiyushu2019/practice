@@ -3,6 +3,7 @@
 用法:
     python train.py --variant baseline          # 纯 YOLOv8n (对照)
     python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
+    python train.py --variant focal             # YOLOv8n + Focal Loss (消融: +Focal Loss)
     python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=2.0)
     python train.py --variant cf --batch 16 --epochs 100
     python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001  # 先冻结后解冻
@@ -20,8 +21,8 @@
    (仅作用于分类分支, box / dfl 损失保持不变)。
 3. Adam 优化器 (文档实际采用) + 余弦退火, 初始学习率 0.001、batch size 16、
    早停 patience 10, 训练 100 轮。
-4. 迁移学习流程 (可选 --freeze-epochs): 先冻结主干训练检测头, 再解冻全网低学习率精调。
-   实测在 BCCD 小数据集上单阶段 (--freeze-epochs 0, 即默认) 精度更优。
+4. 迁移学习流程: 先冻结主干训练检测头, 再解冻全网低学习率精调
+   (默认 --freeze-epochs 10; --freeze-layers 10 冻结主干; --unfreeze-lr 0.0001)。
 
 说明: 之前版本的 CBAM 在原训练脚本里对 model.model 的原地修改会被 ultralytics 在
 model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 DetectionTrainer.get_model()
@@ -84,7 +85,7 @@ class CBAMFocalTrainer(DetectionTrainer):
 
     def get_model(self, cfg=None, weights=None, verbose=True):
         variant = getattr(self, "variant", "baseline")
-        if variant == "cf":
+        if variant in ("focal", "cf"):
             gamma = float(getattr(self, "focal_gamma", 2.0))
             alpha = float(getattr(self, "focal_alpha", 0.25))
             model = self.set_model_names_for_load(
@@ -160,15 +161,15 @@ def run_phase(overrides, args, variant):
 
 def main():
     ap = argparse.ArgumentParser(description="统一训练脚本 (CBAM/Focal 按文档实现)")
-    ap.add_argument("--variant", default="cf", choices=["baseline", "cbam", "cf"])
+    ap.add_argument("--variant", default="cf", choices=["baseline", "cbam", "focal", "cf"])
     ap.add_argument("--device", default="0",
                     help="GPU 编号 (0-7 或 cpu; 默认 0)")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--gamma", type=float, default=2.0, help="Focal Loss γ (文档要求 2.0)")
     ap.add_argument("--alpha", type=float, default=0.25)
-    ap.add_argument("--freeze-epochs", type=int, default=0,
-                    help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习流程可设 10)")
+    ap.add_argument("--freeze-epochs", type=int, default=10,
+                    help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 先冻结后解冻)")
     ap.add_argument("--freeze-layers", type=int, default=10,
                     help="阶段1冻结的 backbone 层数 (yolov8n 主干共 10 层, 默认冻结 10)")
     ap.add_argument("--unfreeze-lr", type=float, default=0.0001,

@@ -1,0 +1,7 @@
+path: ./dataset1/TXL-PBC_preprocessed
+train: train/images
+val: val/images
+test: test/images
+
+nc: 2
+names: ['RBC', 'WBC']

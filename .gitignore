@@ -21,9 +21,15 @@ liter/data/
 # -------cell---------
 cell/weights/
 cell/leagcy/
-cell/dataset/BCCD_Dataset_preprocessed/
-cell/dataset/BCCD_Dataset/
 cell/temp/
 cell/dataset/TXL-PBC_Dataset/
 cell/dataset/mixed_blood_cell/
 cell/dataset/TXL-PBC_preprocessed
+cell/dataset/BCCD_Dataset_preprocessed/
+cell/dataset/BCCD_Dataset/
+
+cell/dataset1/TXL-PBC_Dataset/
+cell/dataset1/mixed_blood_cell/
+cell/dataset1/TXL-PBC_preprocessed
+cell/dataset1/BCCD_Dataset_preprocessed/
+cell/dataset1/BCCD_Dataset/

@@ -90,7 +90,7 @@ task_state = {
         "success": 0, "fail": 0, "total": 0,
         "total_cells": 0, "total_conf": 0.0, "avg_conf": 0.0,
         "total_time": 0.0, "avg_time": 0.0,
-        "rbc": 0, "wbc": 0, "platelets": 0,
+        "rbc": 0, "wbc": 0,
     },
     "latest_result": {},
     "logs": [],
@@ -166,7 +166,6 @@ def processing_loop():
                     )
                     task_state["stats"]["rbc"] += result["counts"]["RBC"]
                     task_state["stats"]["wbc"] += result["counts"]["WBC"]
-                    task_state["stats"]["platelets"] += result["counts"]["Platelets"]
                     task_state["latest_result"] = result
                     task_state["logs"].append(
                         f"[{time.strftime('%H:%M:%S')}] Success: {filename} ({cost:.2f}s, {result['total']} cells)"
@@ -375,7 +374,7 @@ def start_task():
                 "success": 0, "fail": 0, "total": len(filepaths),
                 "total_cells": 0, "total_conf": 0.0, "avg_conf": 0.0,
                 "total_time": 0.0, "avg_time": 0.0,
-                "rbc": 0, "wbc": 0, "platelets": 0,
+                "rbc": 0, "wbc": 0,
             },
             "latest_result": {},
             "conf": conf,
@@ -410,7 +409,6 @@ def get_status():
                 "avg_time": round(stats["avg_time"] * 1000, 1),
                 "rbc": stats["rbc"],
                 "wbc": stats["wbc"],
-                "platelets": stats["platelets"],
             },
             "latest_result": task_state["latest_result"] if task_state["latest_result"] else None,
             "logs": task_state["logs"] if task_state["logs"] else [],

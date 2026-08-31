@@ -4,7 +4,7 @@
 对应 doc.txt 中的改进模型 CF-YOLOv8：
     - 在 Backbone 的 ConvModule 中嵌入 CBAM 注意力模块
     - 分类损失替换为 Focal Loss (α=0.25, γ=2.0)
-类别: 0=RBC(红细胞) 1=WBC(白细胞) 2=Platelets(血小板)
+类别: 0=RBC(红细胞) 1=WBC(白细胞)
 """
 import os
 import base64
@@ -19,9 +19,9 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class CellDetector:
-    CLASS_NAMES = ["RBC", "WBC", "Platelets"]
-    CLASS_CN = {"RBC": "红细胞", "WBC": "白细胞", "Platelets": "血小板"}
-    CLASS_COLORS = {"RBC": "#e74c3c", "WBC": "#3498db", "Platelets": "#2ecc71"}
+    CLASS_NAMES = ["RBC", "WBC"]
+    CLASS_CN = {"RBC": "红细胞", "WBC": "白细胞"}
+    CLASS_COLORS = {"RBC": "#e74c3c", "WBC": "#3498db"}
 
     def __init__(self, weights=None, device="0", conf=0.25):
         self.WEIGHTS = weights or os.path.join(PROJECT_ROOT, "weights", "cf.pt")

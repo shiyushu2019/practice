@@ -2,15 +2,15 @@
 """数据集选择与准备工具 (BCCD / TXL-PBC / 混合)。
 
 支持三种数据集配置:
-    bccd  - 仅使用 BCCD_Dataset_preprocessed (统一类序: RBC/WBC/Platelets)
+    bccd  - 仅使用 BCCD_Dataset_preprocessed (统一类序: RBC/WBC)
     txl   - 仅使用 TXL-PBC_Dataset (类序重映射后与 BCCD 对齐)
     mixed - 混合 BCCD_Dataset_preprocessed + TXL-PBC_preprocessed (默认)
 
-类序统一说明:
-    BCCD 标签类序:      0=RBC, 1=WBC, 2=Platelets
-    TXL-PBC 标签类序:   0=WBC, 1=RBC, 2=Platelet
-    为保证两个数据集可以混合使用, 统一为: 0=RBC, 1=WBC, 2=Platelets
-    因此 TXL-PBC 标签需要做 0<->1 互换 (2 保持不变)。
+类序统一说明 (文档口径: 仅 RBC、WBC 两个类别):
+    BCCD 标签类序:      0=RBC, 1=WBC, 2=Platelets(丢弃)
+    TXL-PBC 标签类序:   0=WBC, 1=RBC, 2=Platelet(丢弃)
+    统一为: 0=RBC, 1=WBC, Platelets 丢弃。
+    因此 TXL-PBC 标签做 0<->1 互换并丢弃类别 2。
 
 用法:
     python dataset_selection.py                # 构建 txl 与 mixed 两套数据集
@@ -26,19 +26,19 @@ sys.path.insert(0, HERE)
 
 from components.preprocessing import preprocess_image  # noqa: E402
 
-DATASET_DIR = os.path.join(HERE, "dataset")
+DATASET_DIR = os.path.join(HERE, "dataset1")
 
 BCCD_SRC = os.path.join(DATASET_DIR, "BCCD_Dataset_preprocessed")
 TXL_SRC = os.path.join(DATASET_DIR, "TXL-PBC_Dataset", "TXL-PBC")
 TXL_DST = os.path.join(DATASET_DIR, "TXL-PBC_preprocessed")
 MIXED_DST = os.path.join(DATASET_DIR, "mixed_blood_cell")
 
-NAMES = ["RBC", "WBC", "Platelets"]  # 统一类名顺序 (0=RBC, 1=WBC, 2=Platelets)
+NAMES = ["RBC", "WBC"]  # 统一类名顺序 (0=RBC, 1=WBC; 文档口径仅两类)
 SPLITS = ("train", "val", "test")
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
-# TXL-PBC 原始类序 -> 统一类序: 0(WBC)->1, 1(RBC)->0, 2(Platelet)->2
-TXL_REMAP = {0: 1, 1: 0, 2: 2}
+# TXL-PBC 原始类序 -> 统一类序: 0(WBC)->1, 1(RBC)->0, 2(Platelet)->丢弃
+TXL_REMAP = {0: 1, 1: 0, 2: None}
 
 DATASETS = {
     "bccd": {
@@ -68,7 +68,7 @@ def _write_yaml(yaml_path, dataset_root):
         "val: val/images\n"
         "test: test/images\n"
         "\n"
-        "nc: 3\n"
+        f"nc: {len(NAMES)}\n"
         f"names: {NAMES!r}\n"
     )
     with open(yaml_path, "w", encoding="utf-8") as f:
@@ -77,7 +77,7 @@ def _write_yaml(yaml_path, dataset_root):
 
 
 def _remap_label(src, dst, mapping):
-    """把 TXL-PBC 标签文件重映射类序号后写到 dst。"""
+    """把 TXL-PBC 标签文件重映射类序号后写到 dst (映射值为 None 的类被丢弃)。"""
     with open(src, "r", encoding="utf-8") as f:
         lines = f.readlines()
     out = []
@@ -87,8 +87,9 @@ def _remap_label(src, dst, mapping):
             continue
         parts = line.split()
         cls = int(float(parts[0]))
-        new_cls = mapping.get(cls, cls)
-        out.append(" ".join([str(new_cls)] + parts[1:]))
+        if cls not in mapping or mapping[cls] is None:
+            continue
+        out.append(" ".join([str(mapping[cls])] + parts[1:]))
     with open(dst, "w", encoding="utf-8") as f:
         f.write("\n".join(out) + ("\n" if out else ""))
 
@@ -166,7 +167,7 @@ def build_txl_preprocessed(force=False):
 def build_mixed(force=False):
     """构建 mixed_blood_cell: 合并 BCCD_Dataset_preprocessed + TXL-PBC_preprocessed。
 
-    两个数据源均已统一为 640×640、类序 RBC/WBC/Platelets, 因此直接软链接合并。
+    两个数据源均已统一为 640×640、类序 RBC/WBC, 因此直接软链接合并。
     """
     print("=" * 70)
     print("构建 mixed_blood_cell (BCCD + TXL-PBC 混合)")

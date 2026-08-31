@@ -6,7 +6,7 @@ python train.py \
   --batch 16 \
   --gamma 2.0 \
   --alpha 0.25 \
-  --freeze-epochs 0 \
+  --freeze-epochs 10 \
   --unfreeze-lr 0.0001 \
   --dataset mixed \
   --imgsz 640 \

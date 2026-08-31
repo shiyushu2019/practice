@@ -5,8 +5,8 @@
 统一调整图像尺寸为 640×640, 适配网络输入。
 
 用法:
-    python preprocess.py                     # 处理整个 dataset/BCCD_Dataset
-    python preprocess.py --src dataset/BCCD_Dataset --dst dataset/BCCD_Dataset_preprocessed
+    python preprocess.py                     # 处理整个 dataset1/BCCD_Dataset
+    python preprocess.py --src dataset1/BCCD_Dataset --dst dataset1/BCCD_Dataset_preprocessed
     python preprocess.py --size 640          # 指定输出尺寸 (默认 640)
 
 说明:
@@ -25,8 +25,8 @@ import cv2
 from components.preprocessing import preprocess_image  # 实现已下沉至 components/preprocessing.py
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_SRC = os.path.join(HERE, "dataset", "BCCD_Dataset")
-DEFAULT_DST = os.path.join(HERE, "dataset", "BCCD_Dataset_preprocessed")
+DEFAULT_SRC = os.path.join(HERE, "dataset1", "BCCD_Dataset")
+DEFAULT_DST = os.path.join(HERE, "dataset1", "BCCD_Dataset_preprocessed")
 SPLITS = ("train", "val", "test")
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
@@ -67,7 +67,7 @@ def main():
 
         print(f"✅ {split}: {len(images)} 张图片处理完成 -> {dst_img_dir}")
 
-    print("✅ 预处理完成。训练时使用: --data dataset/bccd_preprocessed.yaml")
+    print("✅ 预处理完成。训练时使用: --data dataset1/bccd_preprocessed.yaml")
 
 
 if __name__ == "__main__":

@@ -24,9 +24,10 @@ WEIGHTS_DIR = os.path.join(HERE, "weights")
 MODELS = {
     "baseline": os.path.join(WEIGHTS_DIR, "baseline.pt"),
     "cbam": os.path.join(WEIGHTS_DIR, "cbam.pt"),
+    "focal": os.path.join(WEIGHTS_DIR, "focal.pt"),
     "cf": os.path.join(WEIGHTS_DIR, "cf.pt"),
 }
-NAMES = ["RBC", "WBC", "Platelets"]
+NAMES = ["RBC", "WBC"]
 
 
 def main():

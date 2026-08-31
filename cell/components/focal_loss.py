@@ -2,9 +2,6 @@
 
 按文档实现: FL(pt) = -α_t (1 - pt)^γ log(pt), 配置 α=0.25、γ=2.0。
 仅替换分类分支 (cls loss), 边界框回归 (box) 与 DFL 损失保持不变。
-逐元素 focal loss 最后按 BCE 总量做标量重缩放, 仅用于保持 cls loss 的绝对
-尺度 (γ 较大时 focal 数值远小于 BCE, 否则分类头欠拟合、mAP 明显下降),
-不改变 focal 逐元素间的相对加权。
 """
 import torch
 import torch.nn as nn
@@ -38,14 +35,7 @@ class FocalLoss(nn.Module):
         alpha_t = self.alpha * target + (1 - self.alpha) * (1 - target)
 
         # FL(pt) = -alpha_t * (1 - pt)^gamma * log(pt)
-        loss = alpha_t * (1 - p_t) ** self.gamma * ce_loss
-
-        # 量纲保持: gamma 较大时 focal 的数值远小于 BCE, 会使 cls loss 相对
-        # box/dfl 被削弱、分类头欠拟合 (实测 mAP 明显下降)。这里把 focal 总量
-        # 重缩放到与 BCE 相同, 既保留 focal 的相对加权 (压低易分、抬高难分),
-        # 又不改变 cls loss 的绝对尺度。标量缩放不影响逐元素间的相对关系。
-        scale = ce_loss.detach().sum() / (loss.detach().sum() + 1e-8)
-        return loss * scale
+        return alpha_t * (1 - p_t) ** self.gamma * ce_loss
 
 
 class FocalV8DetectionLoss(v8DetectionLoss):
