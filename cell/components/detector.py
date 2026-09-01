@@ -55,7 +55,7 @@ class CellDetector:
 
     def get_model_info(self) -> dict:
         return {
-            "arch": "CF-YOLOv8 (YOLOv8n + CBAM + Focal Loss)",
+            "arch": "CF-YOLOv8 (YOLOv8n + CBAM + Focal Loss + DAMS-Net)",
             "classes": self.CLASS_NAMES,
             "classes_cn": [self.CLASS_CN[c] for c in self.CLASS_NAMES],
             "weights": os.path.basename(self.WEIGHTS),

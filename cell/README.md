@@ -1,8 +1,8 @@
 # CF-YOLOv8 血细胞智能检测系统
 
-基于改进型 YOLOv8n（CBAM 注意力 + Focal Loss）的血细胞检测实验与演示系统，实验文档见 `doc.txt`。
+基于改进型 YOLOv8n（CBAM 注意力 + Focal Loss + DAMS-Net）的血细胞检测实验与演示系统，实验文档见 `doc.txt`。
 
-- 模型变体：`baseline`（纯 YOLOv8n 对照）/ `focal`（YOLOv8n + Focal Loss）/ `cbam`（YOLOv8n + CBAM）/ `dams`（YOLOv8n + DAMS-Net）/ `cf`（YOLOv8n + CBAM + Focal Loss，即 CF-YOLOv8；完整版为 `--variant cf --dams`）
+- 模型变体：`baseline`（纯 YOLOv8n 对照）/ `focal`（YOLOv8n + Focal Loss）/ `cbam`（YOLOv8n + CBAM）/ `dams`（YOLOv8n + DAMS-Net）/ `cf`（YOLOv8n + CBAM + Focal Loss + DAMS-Net，即完整 CF-YOLOv8）
 - 检测类别：`RBC` 红细胞 / `WBC` 白细胞（文档口径，仅两类）
 - 功能：训练（`train.py`）、推理（`inf.py`）、验证（`eval.py`）、Web 演示（`app.py`）、摄像头实时检测（`camera.py`）、VOC→YOLO 转换（`convert_voc_to_yolo.py`）、模型轻量化（`lightweight.py`）
 
@@ -82,7 +82,7 @@ python -m components.dataset_selection --all --force      # 删除已存在目�
 bash scripts/main.sh
 ```
 
-> 文档补齐项：`--variant dams`（DAMS-Net 消融）与 `--variant cf --dams`（完整 CF-YOLOv8，权重名 `cf_dams.pt`）；
+> 文档补齐项：`--variant dams`（DAMS-Net 消融）与 `--variant cf`（完整 CF-YOLOv8，含 DAMS-Net，权重名 `cf.pt`）；
 > `eval.py --plots` 会把混淆矩阵/PR 曲线存到 `cell/results/`；`inf.py --benchmark` 输出 FPS；
 > `convert_voc_to_yolo.py` 完成 VOC→YOLO 转换；`lightweight.py quantize/prune` 做 INT8 量化与结构化剪枝（知识蒸馏待后续）。
 
@@ -152,7 +152,7 @@ python camera.py
 
 ### train.py —— 训练脚本
 
-先激活 conda 环境，在 `cell` 目录下执行。`--variant` 可选 `baseline` / `focal` / `cbam` / `cf`。
+先激活 conda 环境，在 `cell` 目录下执行。`--variant` 可选 `baseline` / `focal` / `cbam` / `dams` / `cf`。
 
 ```bash
 python train.py --variant cf --device 0 --epochs 100 --batch 16
@@ -169,7 +169,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 
 | 参数 | 说明 | 默认 |
 |---|---|---|
-| `--variant` | 变体 | `cf`（baseline/focal/cbam/cf） |
+| `--variant` | 变体 | `cf`（baseline/focal/cbam/dams/cf） |
 | `--device` | GPU 编号 | `0`（0-7 或 cpu） |
 | `--epochs` | 训练轮数 | `100` |
 | `--batch` | Batch size | `16` |

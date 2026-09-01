@@ -1,12 +1,11 @@
-"""统一训练脚本 —— 严格按实验文档实现 CBAM + Focal Loss。
+"""统一训练脚本 —— 严格按实验文档实现 CBAM + Focal Loss + DAMS-Net。
 
 用法:
     python train.py --variant baseline          # 纯 YOLOv8n (对照)
     python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
     python train.py --variant focal             # YOLOv8n + Focal Loss (消融: +Focal Loss)
     python train.py --variant dams              # YOLOv8n + DAMS-Net (消融: +DAMS-Net)
-    python train.py --variant cf                # YOLOv8n + CBAM + Focal Loss (alpha=0.25, gamma=2.0)
-    python train.py --variant cf --dams         # 完整 CF-YOLOv8 (CBAM + Focal + DAMS-Net)
+    python train.py --variant cf                # 完整 CF-YOLOv8 (CBAM + Focal Loss + DAMS-Net)
     python train.py --variant cf --batch 16 --epochs 100
     python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001  # 先冻结后解冻
     python train.py --variant cf --gamma 2.0     # 调 Focal Loss gamma (文档要求 2.0)
@@ -31,12 +30,14 @@ model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 De
 在模型构建阶段注入 CBAM / Focal Loss, 保证二者真正参与前向/反向。
 """
 import argparse
+import copy
 import os
 import shutil
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from ultralytics.models.yolo.detect import DetectionTrainer  # noqa: E402
+from ultralytics.models.yolo.detect.val import DetectionValidator  # noqa: E402
 from ultralytics.nn.tasks import DetectionModel  # noqa: E402
 from ultralytics.nn.modules import Conv  # noqa: E402
 from ultralytics import YOLO  # noqa: E402
@@ -52,7 +53,7 @@ RESULTS_DIR = os.path.join(HERE, "results")
 PRETRAINED = os.path.join(WEIGHTS_DIR, "yolov8n.pt")
 
 
-def inject_cbam(model):
+def inject_cbam(model, reduction=8):
     """在 Backbone 的 ConvModule 中嵌入 CBAM, 返回被替换的层索引。"""
     replaced = []
     for index, layer in enumerate(model.model):
@@ -72,6 +73,7 @@ def inject_cbam(model):
             layer.conv.groups,
             layer.conv.dilation[0],
             layer.act,
+            reduction=reduction,
         )
         conv.load_state_dict(layer.state_dict(), strict=False)
         conv.f = getattr(layer, "f", -1)
@@ -82,6 +84,19 @@ def inject_cbam(model):
     if not replaced:
         raise RuntimeError("未找到可嵌入 CBAM 的 Backbone Conv 层")
     return replaced
+
+
+class MAP50DetectionValidator(DetectionValidator):
+    """按文档要求以验证集 mAP@0.5 作为最优权重保存与早停的依据。
+
+    ultralytics 默认 fitness 为 mAP@0.5:0.95, 这里改为 mAP@0.5
+    (文档: 自动保存验证集 mAP 最优的模型权重)。
+    """
+
+    def get_stats(self):
+        stats = super().get_stats()
+        stats["fitness"] = stats.get("metrics/mAP50(B)", 0.0)
+        return stats
 
 
 class CBAMFocalTrainer(DetectionTrainer):
@@ -102,14 +117,22 @@ class CBAMFocalTrainer(DetectionTrainer):
                 DetectionModel(cfg, ch=self.data["channels"], nc=self.data["nc"], verbose=verbose)
             )
         if variant in ("cbam", "cf"):
-            indices = inject_cbam(model)
-            print(f"  [注入] CBAM 已嵌入 backbone Conv 层 {indices}")
+            reduction = int(getattr(self, "cbam_reduction", 8))
+            indices = inject_cbam(model, reduction=reduction)
+            print(f"  [注入] CBAM 已嵌入 backbone Conv 层 {indices} (reduction={reduction})")
         if getattr(self, "dams", False):
             idx = inject_dams(model)
-            print(f"  [注入] DAMS-Net 已包装 Detect 头 (index={idx})")
+            print(f"  [注入] DAMS-Net 已替换 Neck 融合层 (indices={idx})")
         if weights:
             model.load(weights)
         return model
+
+    def get_validator(self):
+        """返回按 mAP@0.5 计算 fitness 的验证器 (文档要求 mAP@0.5 最优保存)。"""
+        return MAP50DetectionValidator(
+            self.test_loader, save_dir=self.save_dir, args=copy.copy(self.args),
+            _callbacks=self.callbacks,
+        )
 
 
 def verify(path):
@@ -178,6 +201,7 @@ def run_phase(overrides, args, variant, dams=False):
     trainer.dams = dams
     trainer.focal_gamma = args.gamma
     trainer.focal_alpha = args.alpha
+    trainer.cbam_reduction = args.cbam_reduction
     trainer.train()
 
 
@@ -190,8 +214,10 @@ def main():
     ap.add_argument("--batch", type=int, default=16)
     ap.add_argument("--gamma", type=float, default=2.0, help="Focal Loss γ (文档要求 2.0)")
     ap.add_argument("--alpha", type=float, default=0.25)
+    ap.add_argument("--cbam-reduction", type=int, default=8,
+                    help="CBAM 通道注意力 MLP 缩减比 (文档未指定, 默认 8)")
     ap.add_argument("--dams", action="store_true",
-                    help="追加 DAMS-Net 动态多尺度融合 (如 --variant cf --dams = 完整 CF-YOLOv8)")
+                    help="追加 DAMS-Net 动态多尺度融合 (--variant cf 默认已含; 可叠加到 baseline/focal/cbam 做消融)")
     ap.add_argument("--freeze-epochs", type=int, default=10,
                     help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 先冻结后解冻)")
     ap.add_argument("--freeze-layers", type=int, default=10,
@@ -232,9 +258,10 @@ def main():
         data_yaml = ensure_dataset_ready(args.dataset)
     args.data = data_yaml
 
-    # DAMS-Net: --variant dams 等价于 baseline+dams; --dams 可叠加到任意变体
+    # DAMS-Net: --variant dams 等价于 baseline+dams; --variant cf 默认已含 DAMS-Net;
+    # --dams 仍可显式叠加到 baseline/focal/cbam 做消融。
     base_variant = "baseline" if args.variant == "dams" else args.variant
-    use_dams = args.dams or args.variant == "dams"
+    use_dams = args.dams or args.variant in ("dams", "cf")
 
     if args.out:
         out_stem = os.path.splitext(os.path.basename(args.out))[0]

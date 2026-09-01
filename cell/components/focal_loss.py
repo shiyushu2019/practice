@@ -1,6 +1,6 @@
 """Focal Loss 用于 YOLO 检测分类分支。
 
-按文档实现: FL(pt) = -α_t (1 - pt)^γ log(pt), 配置 α=0.25、γ=2.0。
+按文档实现: FL(pt) = -α(1 - pt)^γ log(pt), 配置 α=0.25、γ=2.0。
 仅替换分类分支 (cls loss), 边界框回归 (box) 与 DFL 损失保持不变。
 """
 import torch
@@ -31,11 +31,8 @@ class FocalLoss(nn.Module):
         # p_t = exp(-ce_loss); 对二值标签退化为标准 focal, 对 soft label 也正确泛化
         p_t = torch.exp(-ce_loss)
 
-        # 类别平衡因子: 正样本用 alpha, 负样本用 1-alpha (标准 Focal Loss)
-        alpha_t = self.alpha * target + (1 - self.alpha) * (1 - target)
-
-        # FL(pt) = -alpha_t * (1 - pt)^gamma * log(pt)
-        return alpha_t * (1 - p_t) ** self.gamma * ce_loss
+        # 文档公式: FL(pt) = -alpha * (1 - pt)^gamma * log(pt), alpha 为固定常数
+        return self.alpha * (1 - p_t) ** self.gamma * ce_loss
 
 
 class FocalV8DetectionLoss(v8DetectionLoss):

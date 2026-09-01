@@ -10,7 +10,7 @@ class ChannelAttention(nn.Module):
     文档要求: 共享 MLP 为 1 输入层 + 3 隐藏层 + 1 输出层 (共 5 层),
     最大池化与平均池化的结果经该 MLP 后元素求和, 再经 sigmoid。
     """
-    def __init__(self, in_channels, reduction=16):
+    def __init__(self, in_channels, reduction=8):
         super(ChannelAttention, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
@@ -54,7 +54,7 @@ class SpatialAttention(nn.Module):
 
 class CBAM(nn.Module):
     """CBAM 注意力模块 - 通道注意力 + 空间注意力"""
-    def __init__(self, in_channels, reduction=16, kernel_size=7):
+    def __init__(self, in_channels, reduction=8, kernel_size=7):
         super(CBAM, self).__init__()
         self.channel_attention = ChannelAttention(in_channels, reduction)
         self.spatial_attention = SpatialAttention(kernel_size)
@@ -76,7 +76,7 @@ class CBAMConv(nn.Module):
     """
     default_act = nn.SiLU()  # default activation
 
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True, reduction=16):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True, reduction=8):
         super().__init__()
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False)
         self.bn = nn.BatchNorm2d(c2)
