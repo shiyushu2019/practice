@@ -4,7 +4,7 @@
 
 - 模型变体：`baseline`（纯 YOLOv8n 对照）/ `focal`（YOLOv8n + Focal Loss）/ `cbam`（YOLOv8n + CBAM）/ `dams`（YOLOv8n + DAMS-Net）/ `cf`（YOLOv8n + CBAM + Focal Loss + DAMS-Net，即完整 CF-YOLOv8）
 - 检测类别：`RBC` 红细胞 / `WBC` 白细胞（文档口径，仅两类）
-- 功能：训练（`train.py`）、推理（`inf.py`）、验证（`eval.py`）、Web 演示（`app.py`）、摄像头实时检测（`camera.py`）、VOC→YOLO 转换（`convert_voc_to_yolo.py`）、模型轻量化（`lightweight.py`）
+- 功能：训练（`train.py`）、推理（`inf.py`）、验证（`eval.py`）、Web 演示（`app.py`）、摄像头实时检测（`camera.py`）、VOC→YOLO 转换（`convert_voc_to_yolo.py`）、模型轻量化（`lightweight.py`）、SDK 与 API（`sdk/`，REST: `POST /api/detect`）
 
 ## 环境准备
 

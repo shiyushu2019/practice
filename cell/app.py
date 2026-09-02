@@ -214,6 +214,47 @@ def get_model_info():
     })
 
 
+@app.route('/api/detect', methods=['POST'])
+def detect_single():
+    """单图同步检测 API (SDK 接口): 上传图片 -> 检测框/类别/置信度/计数。"""
+    if detector is None:
+        return jsonify({"error": "模型未初始化"}), 503
+
+    f = request.files.get('image') or request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({"error": "缺少图片文件 (multipart 字段名: image 或 file)"}), 400
+
+    try:
+        conf = float(request.form.get('conf', detector.DEFAULT_CONF))
+    except (TypeError, ValueError):
+        conf = detector.DEFAULT_CONF
+    conf = max(0.01, min(1.0, conf))
+
+    ext = os.path.splitext(f.filename)[1] or ".jpg"
+    tmp_path = os.path.join(UPLOAD_DIR, uuid.uuid4().hex + ext)
+    f.save(tmp_path)
+    try:
+        with model_lock:
+            result = detector.detect({"image_path": tmp_path, "conf": conf})
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+    if result is None:
+        return jsonify({"error": "无法读取图片"}), 422
+
+    return jsonify({
+        "filename": f.filename,
+        "total": result["total"],
+        "counts": result["counts"],
+        "avg_conf": result["avg_conf"],
+        "cost_ms": result["cost_ms"],
+        "boxes": result["boxes"],
+    })
+
+
 def _free_model():
     """释放当前模型占用的显存，避免切换时显存叠加导致 OOM。"""
     old = detector.model
