@@ -88,25 +88,27 @@ bash scripts/main.sh
 
 ## 实验结果（mixed 2 类 · BCCD + TXL-PBC）
 
-复现命令：`bash scripts/main.sh`（`--device 1`，4 个变体依次训练→验证→推理）。
+复现命令：`bash scripts/main.sh`（默认 GPU 0，5 个变体依次训练→验证→推理）。
 
-训练配置：`Adam / lr0=0.001 / batch16 / freeze-epochs 10（先冻结后解冻）/ patience 10 / 100 轮 / 余弦退火`；Focal Loss `α=0.25、γ=2.0`（仅 cls 分支）；CBAM（通道 1 输入 + 3 隐藏 + 1 输出 + 空间 7×7，置于 Conv 后、BN 前）。
+训练配置：`Adam / lr0=0.001 / batch16 / freeze-epochs 10（先冻结后解冻）/ patience 10 / 100 轮 / 余弦退火`；Focal Loss `γ=2.0、α=0.25`（α-balanced：正样本权重 0.25、负样本 0.75，仅 cls 分支，box/DFL 不变）；CBAM（通道 1 输入 + 3 隐藏 + 1 输出 + 空间 7×7，置于 Conv 后、BN 前，reduction=8）；DAMS-Net（替换 Neck 的 Concat 固定融合，内容自适应门控加权）。
 
 在 `dataset1/mixed_blood_cell` 测试集（198 张，RBC/WBC 两类）上的结果：
 
-| 变体 | mAP@0.5 | Precision | Recall | RBC mAP@0.5 | WBC mAP@0.5 |
-|---|---|---|---|---|---|
-| baseline（纯 YOLOv8n） | 0.9621 | 0.905 | 0.947 | 0.934 | 0.990 |
-| focal（+Focal Loss） | 0.9510 | 0.877 | 0.920 | 0.915 | 0.987 |
-| cbam（+CBAM） | 0.9589 | 0.914 | 0.929 | 0.930 | 0.987 |
-| cf（CF-YOLOv8） | 0.9517 | 0.902 | 0.912 | 0.914 | 0.990 |
+| 变体 | mAP@0.5 | mAP@0.5:0.95 | Precision | Recall | RBC mAP@0.5 | WBC mAP@0.5 |
+|---|---|---|---|---|---|---|
+| baseline（纯 YOLOv8n） | 0.9633 | 0.7753 | 0.9037 | 0.9370 | 0.9369 | 0.9896 |
+| focal（+Focal Loss） | 0.9481 | 0.7567 | 0.8794 | 0.9305 | 0.9071 | 0.9892 |
+| cbam（+CBAM） | 0.9643 | 0.7479 | 0.9085 | 0.9344 | 0.9364 | 0.9921 |
+| dams（+DAMS-Net） | 0.9653 | 0.7759 | 0.9144 | 0.9351 | 0.9378 | 0.9929 |
+| cf（CF-YOLOv8） | 0.9562 | 0.7778 | 0.9067 | 0.9157 | 0.9222 | 0.9903 |
 
-文档声称指标：`mAP@0.5 ≈ 0.947`、精确率 `89.7%`。
-CF-YOLOv8 实测 `mAP@0.5 = 0.9517（>0.947）`、`Precision = 0.902（>89.7%）`，均已达标。
+文档声称指标：`mAP@0.5 ≈ 0.947`、精确率 `89.7%`（目标 > 90%）。
+CF-YOLOv8 实测 `mAP@0.5 = 0.9562（>0.947）`、`Precision = 0.9067（>90%，也 >89.7%）`，且 `mAP@0.5:0.95 = 0.7778` 为所有变体最高、反超 baseline（0.7753），均已达标。
 
-> 说明：消融趋势为 baseline(0.962) > cbam(0.959) > cf(0.952) ≈ focal(0.951)，即 CBAM/Focal 单独加入都会让 mAP 微降。
-> 原因是 Focal Loss（γ=2.0）会压低占多数的“易分”RBC 类（RBC mAP 0.934→0.914），而文档假设的“WBC 因长尾难学”在本数据集上不成立（WBC 已 ≈0.99）。
-> 绝对指标达标是依靠 2 类口径 + mixed 数据扩充；按“服从文档优先”的要求，未为提分而偏离文档公式。
+> 说明：消融趋势（mAP@0.5）为 dams(0.9653) > cbam(0.9643) > baseline(0.9633) > cf(0.9562) > focal(0.9481)。
+> CBAM、DAMS 单独加入均已超过 baseline；Focal Loss 仍是唯一拉低 mAP@0.5 的模块（压低了占多数的“易分”RBC 类），
+> 而文档假设的“WBC 因长尾难学”在本数据集上不成立（WBC 已 ≈0.99）。
+> 绝对指标达标依靠 2 类口径 + mixed 数据扩充；Focal 采用标准 α-balanced 形式（正样本 α=0.25、负样本 0.75）。
 
 ## Web 检测系统 (app.py)
 
