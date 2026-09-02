@@ -84,7 +84,7 @@ bash scripts/main.sh
 
 > 文档补齐项：`--variant dams`（DAMS-Net 消融）与 `--variant cf`（完整 CF-YOLOv8，含 DAMS-Net，权重名 `cf.pt`）；
 > `eval.py --plots` 会把混淆矩阵/PR 曲线存到 `cell/results/`；`inf.py --benchmark` 输出 FPS；
-> `convert_voc_to_yolo.py` 完成 VOC→YOLO 转换；`lightweight.py quantize/prune` 做 INT8 量化与结构化剪枝（知识蒸馏待后续）。
+> `convert_voc_to_yolo.py` 完成 VOC→YOLO 转换；`lightweight.py quantize/prune/distill` 做 INT8 量化、结构化剪枝与知识蒸馏（蒸馏复用 ultralytics 内置 `distill_model`，教师 CF-YOLOv8 → 剪枝学生）。
 
 ## 实验结果（mixed 2 类 · BCCD + TXL-PBC）
 
@@ -142,10 +142,19 @@ python app.py --weights weights/cbam.pt --device 0
 ```bash
 # 默认摄像头 0 + weights/cf.pt，实时检测并按 q 退出
 python camera.py
+# 可指定摄像头、权重、设备与置信度阈值
+python camera.py --camera 0 --weights weights/cf.pt --device 0 --conf 0.25
 ```
 
+| 参数 | 说明 | 默认 |
+|---|---|---|
+| `--camera` | 摄像头编号 | `0` |
+| `--weights` | 模型权重路径 | `weights/cf.pt` |
+| `--device` | 推理设备（0-7 或 cpu） | `0` |
+| `--conf` | 置信度阈值 | `0.25` |
+
 说明：程序打开摄像头 0，加载 `weights/cf.pt`，以置信度 0.25 逐帧检测并绘制检测框（检测框 + 类别标签 + 置信度），
-实时输出各类细胞统计计数，按 `q` 退出。（`camera.py` 无命令行参数，摄像头编号、权重、置信度均为内置值。）
+实时输出各类细胞统计计数，按 `q` 退出。摄像头模式下已关闭逐帧日志并设置底层计算库线程数，退出时自动释放摄像头资源。
 
 
 ## 训练 / 推理 / 验证 (train.py / inf.py / eval.py)
