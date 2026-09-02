@@ -31,8 +31,11 @@ class FocalLoss(nn.Module):
         # p_t = exp(-ce_loss); 对二值标签退化为标准 focal, 对 soft label 也正确泛化
         p_t = torch.exp(-ce_loss)
 
-        # 文档公式: FL(pt) = -alpha * (1 - pt)^gamma * log(pt), alpha 为固定常数
-        return self.alpha * (1 - p_t) ** self.gamma * ce_loss
+        # 文档公式: FL(pt) = -alpha * (1 - pt)^gamma * log(pt)
+        # 类别平衡权重 α_t = α*t + (1-α)*(1-t) (标准 Focal Loss, 用于缓解类别不平衡;
+        # 正样本权重 α=0.25, 负样本权重 1-α=0.75)
+        alpha_t = self.alpha * target + (1.0 - self.alpha) * (1.0 - target)
+        return alpha_t * (1 - p_t) ** self.gamma * ce_loss
 
 
 class FocalV8DetectionLoss(v8DetectionLoss):

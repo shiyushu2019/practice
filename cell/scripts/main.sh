@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 全量训练 + 验证 + 推理 (数据集: 混合 BCCD + TXL-PBC; GPU 用 DEVICE 环境变量指定, 默认 3)
+# 全量训练 + 验证 + 推理 (数据集: 混合 BCCD + TXL-PBC; GPU 用 DEVICE 环境变量指定, 默认 0)
 # 消融五组: baseline / +Focal Loss / +CBAM / +DAMS-Net / CF-YOLOv8; 各阶段需依次执行, 不要并行。
 set -e
 
-DEVICE="${DEVICE:-3}"
+DEVICE="${DEVICE:-0}"
 DATASET="mixed"
 EPOCHS=100
 
