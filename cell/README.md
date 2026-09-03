@@ -201,6 +201,7 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | `--no-cos-lr` | 关闭余弦学习率退火 | 关闭 |
 | `--mosaic` | Mosaic 增强概率（0 关闭） | `1.0` |
 | `--close-mosaic` | 最后 N 轮关闭 Mosaic | `10` |
+| `--random-crop` | 随机裁剪增强（RandomResizedCrop，需安装 albumentations） | 关闭（默认） |
 | `--degrees` | 随机旋转角度范围 | `180` |
 | `--flipud` | 上下翻转概率 | `0.5` |
 | `--fliplr` | 左右翻转概率 | `0.5` |
@@ -212,6 +213,9 @@ python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/c
 | `--no-deterministic` | 关闭确定性训练 | 关闭 |
 | `--no-amp` | 关闭混合精度 AMP | 关闭 |
 | `--no-plots` | 不保存训练曲线图 | 关闭 |
+
+> 注意：`--random-crop` 默认**关闭**（对应文档补充要求的随机裁剪增强；为保持既有实验可复现，默认不开启）。
+> 开启前需先安装 `albumentations>=2.0.0`，用法：`python train.py --variant cf --random-crop ...`。
 
 训练完成后 best 权重统一保存到 `weights/<variant>.pt`（或 `--out` 指定的文件）。
 

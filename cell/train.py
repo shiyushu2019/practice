@@ -134,6 +134,30 @@ class CBAMFocalTrainer(DetectionTrainer):
             _callbacks=self.callbacks,
         )
 
+    def build_dataset(self, img_path, mode="train", batch=None):
+        """按文档补充: 可选随机裁剪增强 (RandomResizedCrop, 默认关闭)。
+
+        ultralytics 本身无随机裁剪, 这里通过其官方 hyp.augmentations 钩子注入
+        albumentations 的 RandomResizedCrop (随机裁剪并缩回 imgsz, 自动裁切/保留框),
+        仅对训练集生效, 对 baseline/focal/cbam/dams/cf 统一生效以保持消融公平。
+        """
+        if mode == "train" and getattr(self, "random_crop", False):
+            try:
+                import albumentations as A
+            except ImportError as e:
+                raise ImportError(
+                    "--random-crop 需要 albumentations>=2.0.0, 请先安装: pip install albumentations"
+                ) from e
+            imgsz = self.args.imgsz
+            self.args.augmentations = [
+                A.RandomResizedCrop(
+                    size=(imgsz, imgsz),
+                    scale=(0.6, 1.0), ratio=(0.9, 1.1), p=0.5,
+                ).to_dict()
+            ]
+            print(f"  [增强] 随机裁剪 (RandomResizedCrop) 已开启: {imgsz}×{imgsz}")
+        return super().build_dataset(img_path, mode, batch)
+
 
 def verify(path):
     """加载保存的权重, 检查 CBAM 是否真的在模型里。"""
@@ -202,6 +226,7 @@ def run_phase(overrides, args, variant, dams=False):
     trainer.focal_gamma = args.gamma
     trainer.focal_alpha = args.alpha
     trainer.cbam_reduction = args.cbam_reduction
+    trainer.random_crop = args.random_crop
     trainer.train()
 
 
@@ -238,6 +263,8 @@ def main():
     ap.add_argument("--no-cos-lr", action="store_true", help="关闭余弦学习率退火")
     ap.add_argument("--mosaic", type=float, default=1.0, help="Mosaic 增强概率 (0 关闭)")
     ap.add_argument("--close-mosaic", type=int, default=10, help="最后 N 轮关闭 Mosaic")
+    ap.add_argument("--random-crop", action="store_true",
+                    help="启用随机裁剪增强 (RandomResizedCrop, 需安装 albumentations; 默认关闭)")
     ap.add_argument("--degrees", type=float, default=180, help="随机旋转角度范围")
     ap.add_argument("--flipud", type=float, default=0.5, help="上下翻转概率")
     ap.add_argument("--fliplr", type=float, default=0.5, help="左右翻转概率")
