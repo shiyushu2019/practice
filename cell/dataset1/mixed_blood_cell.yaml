@@ -1,7 +1,0 @@
-path: ./dataset1/mixed_blood_cell
-train: train/images
-val: val/images
-test: test/images
-
-nc: 2
-names: ['RBC', 'WBC']

@@ -7,14 +7,13 @@ DEVICE="${DEVICE:-0}"
 DATASET="mixed"
 EPOCHS=100
 
-# 数据准备: mixed 依赖 BCCD 预处理集 (TXL/mixed 会由 train/eval/inf 内部自动构建)
-if [ ! -d dataset1/BCCD_Dataset_preprocessed ]; then
-  if [ ! -d dataset1/BCCD_Dataset ]; then
-    echo "错误: 缺少 dataset1/BCCD_Dataset (原始 BCCD), 无法构建预处理集" >&2
+HASH="404103f669dcb21c150dd0fed5720e202c460f73a39c42a82e3ef22c3978d2d5"
+if [ "$(sha256sum ./dataset1.zip 2>/dev/null | cut -d' ' -f1)" = "$HASH" ]; then
+    echo "dataset1.zip哈希匹配, 正在解压"
+    unzip -q -o dataset1.zip -d .   # -q 静默，-o 覆盖已有文件
+else
+    echo "哈希不匹配，解压 dataset1.zip ..."
     exit 1
-  fi
-  echo "[prep] 构建 BCCD 预处理集..."
-  python preprocess.py
 fi
 
 # 阶段1: 基线对照 YOLOv8n

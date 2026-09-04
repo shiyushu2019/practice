@@ -1,7 +1,0 @@
-path: ./dataset1/BCCD_Dataset
-train: train/images
-val: val/images
-test: test/images
-
-nc: 2
-names: ['RBC', 'WBC']
