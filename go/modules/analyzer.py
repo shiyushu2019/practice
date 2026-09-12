@@ -7,10 +7,13 @@
 损失、目数损失及质量评级。
 
 主要接口：
-    GoAnalyzer(katago_bin: str, model_path: str, config_path: str, komi=7.5)
-        输入 KataGo 可执行文件、模型、配置路径和贴目，返回已初始化的
-        分析器对象；初始化会发送棋盘大小、贴目和清盘命令。
-    set_board(board_state: list[list[int]], cols: str, size=19) -> None
+    GoAnalyzer(katago_bin: str, model_path: str, config_path: str, komi=7.5,
+               rules="tromp-taylor", size=19)
+        输入 KataGo 可执行文件、模型、配置路径、贴目、规则名和棋盘路数，
+        返回已初始化的分析器对象；初始化会发送棋盘大小、贴目和清盘命令。
+    set_boardsize(size: int) -> None
+        切换 KataGo 的棋盘大小并清盘。
+    set_board(board_state: list[list[int]], cols: str, size=None) -> None
         输入当前棋盘数组、列标签和边长，将局面同步到 KataGo。
     analyze(player: int, max_visits=300) -> dict
         输入当前玩家和最大访问次数，返回分析结果字典。
@@ -32,7 +35,10 @@ import tempfile
 
 
 class GoAnalyzer:
-    def __init__(self, katago_bin, model_path, config_path, komi=7.5):
+    def __init__(self, katago_bin, model_path, config_path, komi=7.5, rules="tromp-taylor", size=19):
+        self.komi = komi
+        self.rules = rules
+        self.size = size
         self.proc = subprocess.Popen(
             [katago_bin, "gtp", "-model", model_path, "-config", config_path],
             stdin=subprocess.PIPE,
@@ -41,8 +47,18 @@ class GoAnalyzer:
             text=True,
             bufsize=1,
         )
-        self._send("boardsize 19")
+        self._send(f"boardsize {size}")
+        try:
+            self._send(f"kata-set-rules {rules}")
+        except RuntimeError:
+            # 部分 KataGo 版本不支持该扩展命令，忽略并沿用配置文件中的规则。
+            pass
         self._send(f"komi {komi}")
+        self._send("clear_board")
+
+    def set_boardsize(self, size):
+        self.size = size
+        self._send(f"boardsize {size}")
         self._send("clear_board")
 
     def _send(self, cmd):
@@ -62,8 +78,12 @@ class GoAnalyzer:
                 raise RuntimeError(f"分析引擎错误: {line}")
         return lines
 
-    def set_board(self, board_state, cols, size=19):
+    def set_board(self, board_state, cols, size=None):
         """通过临时 SGF 文件同步任意黑白棋盘局面。"""
+        size = self.size if size is None else size
+        if size != self.size:
+            self._send(f"boardsize {size}")
+            self.size = size
         stones = {"B": [], "W": []}
         for r in range(size):
             for c in range(size):
@@ -74,7 +94,7 @@ class GoAnalyzer:
                 sgf_coord = f"{chr(ord('a') + c)}{chr(ord('a') + r)}"
                 stones[color].append(f"[{sgf_coord}]")
 
-        properties = ["GM[1]", "FF[4]", f"SZ[{size}]", "KM[7.5]"]
+        properties = ["GM[1]", "FF[4]", f"SZ[{size}]", f"KM[{self.komi}]"]
         if stones["B"]:
             properties.append("AB" + "".join(stones["B"]))
         if stones["W"]:

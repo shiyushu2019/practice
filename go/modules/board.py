@@ -30,9 +30,14 @@
 
 class GoBoard:
     def __init__(self, size=19):
+        if not 1 <= size <= 19:
+            raise ValueError(f"不支持的棋盘大小: {size}")
         self.size = size
-        self.cols = "ABCDEFGHJKLMNOPQRST"
+        self.cols = "ABCDEFGHJKLMNOPQRST"[:size]
         self.board = [[0] * size for _ in range(size)]
+
+    def reset(self):
+        self.board = [[0] * self.size for _ in range(self.size)]
 
     def coord_to_rc(self, move):
         move = move.upper()

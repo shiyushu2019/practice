@@ -19,30 +19,43 @@ try:
     from .modules.analyzer import GoAnalyzer
     from .modules.board import GoBoard
     from .modules.config import (
+        BOARD_SIZE,
         KATAGO_BIN,
         KATAGO_CONFIG,
         KATAGO_MODEL,
+        KOMI,
         OPENAI_API_KEY,
         OPENAI_BASE_URL,
+        RULES,
     )
     from .modules.gui import GoGUI
 except ImportError:
     from modules.analyzer import GoAnalyzer
     from modules.board import GoBoard
     from modules.config import (
+        BOARD_SIZE,
         KATAGO_BIN,
         KATAGO_CONFIG,
         KATAGO_MODEL,
+        KOMI,
         OPENAI_API_KEY,
         OPENAI_BASE_URL,
+        RULES,
     )
     from modules.gui import GoGUI
 
 
 def main():
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
-    analyzer = GoAnalyzer(KATAGO_BIN, KATAGO_MODEL, KATAGO_CONFIG)
-    board = GoBoard(19)
+    analyzer = GoAnalyzer(
+        KATAGO_BIN,
+        KATAGO_MODEL,
+        KATAGO_CONFIG,
+        komi=KOMI,
+        rules=RULES,
+        size=BOARD_SIZE,
+    )
+    board = GoBoard(BOARD_SIZE)
     gui = GoGUI(board, client, analyzer, human_color=1)
     gui.run()
 

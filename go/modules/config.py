@@ -10,13 +10,16 @@
 	DEEPSEEK_BASE_URL：DeepSeek OpenAI 兼容接口地址，默认
 		``https://api.deepseek.com``。
 	DEEPSEEK_API_KEY：传给 OpenAI 兼容客户端的 API 密钥。
+	GO_BOARD_SIZE：棋盘路数，默认 19，可选 9、13、19。
+	GO_KOMI：贴目，默认 7.5。
+	GO_RULES：KataGo 规则名，默认 tromp-taylor。
 	KATAGO_BIN：KataGo 可执行文件路径。
 	KATAGO_MODEL：KataGo 神经网络模型路径。
 	KATAGO_CONFIG：KataGo GTP 配置文件路径。
 
 主要输出：
-	MODEL、OPENAI_BASE_URL、OPENAI_API_KEY、KATAGO_BIN、KATAGO_MODEL 和 KATAGO_CONFIG
-	五个字符串或 ``None`` 的模块级常量。
+	MODEL、OPENAI_BASE_URL、OPENAI_API_KEY、BOARD_SIZES、BOARD_SIZE、KOMI、
+	RULES、KATAGO_BIN、KATAGO_MODEL 和 KATAGO_CONFIG 若干模块级常量。
 
 调用方式：
 	``from modules.config import KATAGO_BIN``，或在包方式下使用
@@ -31,6 +34,13 @@ OPENAI_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 OPENAI_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 MODEL_OPTIONS = ("deepseek-flash", "deepseek-v4-pro")
 THINKING_OPTIONS = ("disabled", "low", "high", "max")
+
+BOARD_SIZES = (9, 13, 19)
+BOARD_SIZE = int(os.getenv("GO_BOARD_SIZE", "19"))
+if BOARD_SIZE not in BOARD_SIZES:
+    BOARD_SIZE = 19
+KOMI = float(os.getenv("GO_KOMI", "7.5"))
+RULES = os.getenv("GO_RULES", "tromp-taylor")
 
 KATAGO_BIN = os.getenv("KATAGO_BIN")
 KATAGO_MODEL = os.getenv("KATAGO_MODEL")

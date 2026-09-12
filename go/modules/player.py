@@ -14,7 +14,7 @@
         解析时返回 ``None``。
     ask_model_for_move(client, board, player, last_move, captured,
                        ko_point, history, model=MODEL,
-                       thinking_effort="high", max_retries=3,
+                       thinking_effort="high", komi=7.5, max_retries=3,
                        return_reasoning=False) -> str | tuple[str, str]
         输入 OpenAI 兼容客户端和当前对局信息，返回一个合法坐标或 ``pass``；
         ``return_reasoning=True`` 时额外返回 DeepSeek 思考文本。
@@ -36,11 +36,11 @@ except ImportError:
     from modules.config import MODEL
 
 
-SYSTEM_PROMPT = """你是围棋对弈程序中的“选点模块”。棋盘状态、提子、劫、合法着法均由外部程序维护，你不负责重新计算规则。
+SYSTEM_PROMPT_TEMPLATE = """你是围棋对弈程序中的“选点模块”。棋盘状态、提子、劫、合法着法均由外部程序维护，你不负责重新计算规则。
 
 规则：
-- 19 路围棋，黑先，贴目 7.5。
-- 坐标：列 A-T，跳过 I；行 1-19，从下到上。
+- {size} 路围棋，黑先，贴目 {komi}。
+- 坐标：列 {first_col}-{last_col}，跳过 I；行 1-{size}，从下到上。
 - 只能从每步提供的“合法着法”列表中选择。
 - 如果合法着法列表为空，输出 pass。
 
@@ -63,6 +63,16 @@ SYSTEM_PROMPT = """你是围棋对弈程序中的“选点模块”。棋盘状�
 <move>坐标</move>
 例如：<move>D4</move> 或 <move>pass</move>
 不要输出解释、标点或多余文字。"""
+
+
+def build_system_prompt(size, komi):
+    cols = "ABCDEFGHJKLMNOPQRST"[:size]
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        size=size,
+        komi=f"{komi:g}",
+        first_col=cols[0],
+        last_col=cols[-1],
+    )
 
 
 def build_user_prompt(board, player, last_move, captured, ko_point, legal_moves, history):
@@ -112,6 +122,7 @@ def ask_model_for_move(
     history,
     model=MODEL,
     thinking_effort="high",
+    komi=7.5,
     max_retries=3,
     return_reasoning=False,
     on_reasoning=None,
@@ -120,8 +131,9 @@ def ask_model_for_move(
 ):
     legal = board.legal_moves(player, ko_point)
     legal_set = {move.lower() for move in legal}
+    system_prompt = build_system_prompt(board.size, komi)
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": build_user_prompt(
             board, player, last_move, captured, ko_point, legal, history
         )},
@@ -163,6 +175,7 @@ def ask_model_for_move(
             return _fallback_after_timeout(
                 client,
                 model,
+                system_prompt,
                 messages[1]["content"],
                 legal,
                 reasoning_parts,
@@ -224,6 +237,7 @@ def _stream_chunks(client, request, deadline):
 def _fallback_after_timeout(
     client,
     model,
+    system_prompt,
     user_prompt,
     legal,
     reasoning_parts,
@@ -239,7 +253,7 @@ def _fallback_after_timeout(
         {
             "role": "system",
             "content": (
-                SYSTEM_PROMPT
+                system_prompt
                 + "\n\n这是一次超时后的快速续会话。请继承下面的遗留思考，"
                 "不要继续展开分析，立即输出最终合法着法。"
             ),

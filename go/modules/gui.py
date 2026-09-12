@@ -28,11 +28,13 @@ from pygame._sdl2 import video
 
 try:
     from .analyzer import evaluate_gpt_move
-    from .config import MODEL, MODEL_OPTIONS, THINKING_OPTIONS
+    from .board import GoBoard
+    from .config import BOARD_SIZES, MODEL, MODEL_OPTIONS, THINKING_OPTIONS
     from .player import ask_model_for_move
 except ImportError:
     from modules.analyzer import evaluate_gpt_move
-    from modules.config import MODEL, MODEL_OPTIONS, THINKING_OPTIONS
+    from modules.board import GoBoard
+    from modules.config import BOARD_SIZES, MODEL, MODEL_OPTIONS, THINKING_OPTIONS
     from modules.player import ask_model_for_move
 
 
@@ -41,22 +43,46 @@ class GoGUI:
     MIN_WINDOW_HEIGHT = 640
     MIN_BOARD_WIDTH = 560
 
-    BG = (222, 184, 135)
-    LINE = (0, 0, 0)
-    BLACK = (25, 25, 25)
-    WHITE = (245, 245, 245)
-    RED = (220, 40, 40)
-    BLUE = (40, 80, 200)
-    GREEN = (30, 140, 60)
-    GOLD = (200, 160, 20)
-    TEXT = (30, 30, 30)
-    DIM = (110, 110, 110)
-    BTN = (60, 90, 160)
-    BTN_HOVER = (80, 115, 190)
-    BTN_DISABLED = (150, 150, 150)
-    BTN_DANGER = (170, 70, 70)
-    BTN_DANGER_HOVER = (200, 90, 90)
-    BTN_ACTIVE = (200, 140, 40)
+    BG = (22, 26, 37)
+    PANEL_BG = (31, 36, 50)
+    PANEL_BG_2 = (43, 49, 66)
+    CARD_BG = (50, 57, 75)
+
+    BOARD_TOP = (236, 200, 142)
+    BOARD_BOTTOM = (203, 159, 101)
+    BOARD_FRAME = (118, 82, 44)
+
+    LINE = (94, 64, 35)
+    BLACK = (24, 24, 28)
+    BLACK_HI = (86, 90, 102)
+    WHITE = (246, 246, 244)
+    WHITE_SHADE = (158, 156, 150)
+
+    RED = (235, 87, 87)
+    BLUE = (94, 158, 255)
+    GREEN = (56, 180, 127)
+    GOLD = (242, 181, 60)
+
+    TEXT = (232, 235, 243)
+    DIM = (158, 166, 186)
+    MUTED = (118, 125, 145)
+
+    BTN = (62, 86, 158)
+    BTN_HOVER = (80, 108, 188)
+    BTN_DISABLED = (88, 94, 112)
+    BTN_DANGER = (186, 70, 70)
+    BTN_DANGER_HOVER = (214, 90, 90)
+    BTN_ACTIVE = (212, 150, 46)
+    BTN_ACTIVE_HOVER = (232, 168, 58)
+
+    RULES_LABELS = {
+        "tromp-taylor": "Tromp-Taylor（数子）",
+        "chinese": "中国规则",
+        "japanese": "日本规则",
+        "korean": "韩国规则",
+        "aga": "AGA 规则",
+        "new-zealand": "新西兰规则",
+    }
 
     def __init__(self, board, client, analyzer, human_color=1):
         pygame.init()
@@ -67,12 +93,16 @@ class GoGUI:
         self.ai_color = 3 - human_color
         self.model_options = MODEL_OPTIONS
         self.thinking_options = THINKING_OPTIONS
+        self.board_sizes = BOARD_SIZES
+        self.komi = analyzer.komi
+        self.rules = analyzer.rules
         self.selected_model = MODEL if MODEL in self.model_options else self.model_options[0]
         self.selected_thinking = "high"
         self.thinking_timeout_text = "30"
         self.thinking_timeout_active = False
+        self.timeout_edit_text = None
         self.thinking_deadline = None
-        self.edit_color = 1
+        self.settings_open = False
         self.reasoning_text = ""
         self.reasoning_window = None
         self.reasoning_renderer = None
@@ -81,21 +111,23 @@ class GoGUI:
         self.margin = 42
         self.panel_gap = 28
         self.panel_width = 260
-        self.board_width = self.margin * 2 + (board.size - 1) * self.cell
-        width = self.board_width + self.panel_gap + self.panel_width
-        height = self.board_width
-        self.screen = pygame.display.set_mode((width, height))
+        initial_board = self.margin * 2 + (board.size - 1) * self.cell
+        self._layout_window(
+            initial_board + self.panel_gap + self.panel_width,
+            initial_board,
+        )
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height))
         pygame.display.set_caption("GPT 围棋（KataGo 分析）")
 
         self.font = self._load_font(15)
         self.small = self._load_font(13)
         self.big = self._load_font(18)
-        self._layout_window(width, height)
 
         self.current_player = 1
         self.last_move_rc = None
         self.last_move_str = None
         self.captured = []
+        self.captured_count = {1: 0, 2: 0}
         self.ko_point = None
         self.history = []
         self.move_actors = []
@@ -128,31 +160,80 @@ class GoGUI:
         self.cell = self.grid_span / max(1, self.board.size - 1)
         self.panel_x = self.board_width + self.panel_gap
 
-        button_width, button_height, gap = self.panel_width, 34, 10
-        button_y = max(150, min(190, height // 4))
-        self.btn_model = pygame.Rect(self.panel_x, button_y, button_width, button_height)
-        self.btn_thinking = pygame.Rect(
-            self.panel_x, button_y + button_height + gap, button_width, button_height
+        button_width = self.panel_width
+        button_h, gap = 32, 6
+        section_gap = 12
+        header_h, header_gap = 16, 6
+
+        # 分区：操作(4) + 视图(1) + 设置(1)
+        block_height = (
+            (header_h + header_gap + 4 * button_h + 3 * gap)
+            + section_gap
+            + (header_h + header_gap + button_h)
+            + section_gap
+            + button_h
         )
-        self.btn_timeout = pygame.Rect(
-            self.panel_x, button_y + 2 * (button_height + gap), button_width, button_height
-        )
-        self.btn_edit_color = pygame.Rect(
-            self.panel_x, button_y + 3 * (button_height + gap), button_width, button_height
-        )
-        self.btn_reasoning = pygame.Rect(
-            self.panel_x, button_y + 4 * (button_height + gap), button_width, button_height
-        )
-        action_y = button_y + 5 * (button_height + gap) + 18
-        self.btn_analyze = pygame.Rect(self.panel_x, action_y, button_width, button_height)
-        self.btn_undo = pygame.Rect(
-            self.panel_x, action_y + button_height + gap, button_width, button_height
-        )
-        self.btn_edit = pygame.Rect(
-            self.panel_x, action_y + 2 * (button_height + gap), button_width, button_height
-        )
-        self.btn_ai = pygame.Rect(
-            self.panel_x, action_y + 3 * (button_height + gap), button_width, button_height
+        y = height - block_height - 10
+
+        self.section_action_y = y
+        y += header_h + header_gap
+        self.btn_analyze = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + gap
+        self.btn_ai = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + gap
+        self.btn_undo = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + gap
+        self.btn_edit = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + section_gap
+
+        self.section_view_y = y
+        y += header_h + header_gap
+        self.btn_reasoning = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + section_gap
+
+        self.btn_settings = pygame.Rect(self.panel_x, y, button_width, button_h)
+
+        self.sections = [
+            ("操作", self.section_action_y),
+            ("视图", self.section_view_y),
+        ]
+
+        self._layout_settings()
+        self._build_board_background()
+
+    def _build_board_background(self):
+        surface = pygame.Surface((self.board_width, self.board_width))
+        top, bottom = self.BOARD_TOP, self.BOARD_BOTTOM
+        for y in range(self.board_width):
+            ratio = y / max(1, self.board_width - 1)
+            color = tuple(
+                int(top[i] + (bottom[i] - top[i]) * ratio) for i in range(3)
+            )
+            pygame.draw.line(surface, color, (0, y), (self.board_width, y))
+        self._board_bg = surface
+
+    def _layout_settings(self):
+        width = min(540, self.window_width - 80)
+        height = min(500, self.window_height - 80)
+        x = (self.window_width - width) // 2
+        y = (self.window_height - height) // 2
+        self.settings_rect = pygame.Rect(x, y, width, height)
+
+        row_h, row_gap = 40, 12
+        right_x = x + 30 + 130 + 12
+        right_w = width - (30 + 130 + 12) - 30
+        ry = y + 64
+        self.setting_board_btn = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_model_btn = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_thinking_btn = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_timeout_field = pygame.Rect(right_x, ry, right_w, row_h)
+
+        close_w = 110
+        self.settings_close_btn = pygame.Rect(
+            x + width - close_w - 30, y + height - 48, close_w, 34,
         )
 
     def _resize_window(self, width, height):
@@ -195,6 +276,18 @@ class GoGUI:
                 return row, col
         return None
 
+    def _star_points(self):
+        size = self.board.size
+        if size == 9:
+            return [(2, 2), (2, 6), (4, 4), (6, 2), (6, 6)]
+        if size == 13:
+            return [(3, 3), (3, 9), (6, 6), (9, 3), (9, 9)]
+        return [
+            (3, 3), (3, 9), (3, 15),
+            (9, 3), (9, 9), (9, 15),
+            (15, 3), (15, 9), (15, 15),
+        ]
+
     def _push_snapshot(self):
         self.snapshots.append({
             "board": [row[:] for row in self.board.board],
@@ -203,6 +296,7 @@ class GoGUI:
             "last_move_rc": self.last_move_rc,
             "last_move_str": self.last_move_str,
             "captured": list(self.captured),
+            "captured_count": dict(self.captured_count),
             "history": list(self.history),
             "move_actors": list(self.move_actors),
             "game_over": self.game_over,
@@ -218,6 +312,7 @@ class GoGUI:
         self.last_move_rc = snapshot["last_move_rc"]
         self.last_move_str = snapshot["last_move_str"]
         self.captured = snapshot["captured"]
+        self.captured_count = snapshot["captured_count"]
         self.history = snapshot["history"]
         self.move_actors = snapshot["move_actors"]
         self.game_over = snapshot["game_over"]
@@ -239,6 +334,13 @@ class GoGUI:
         else:
             status = "AI 回合"
         lines = [(status, self.big, self.TEXT)]
+
+        rules_label = self.RULES_LABELS.get(self.rules, self.rules)
+        lines.append((
+            f"{self.board.size} 路 · 贴目 {self.komi:g} · {rules_label} · "
+            f"提子 黑{self.captured_count[1]}/白{self.captured_count[2]}",
+            self.small, self.DIM,
+        ))
 
         if self.kata_analysis and self.kata_analysis.get("best_winrate") is not None:
             winrate = self.kata_analysis["best_winrate"]
@@ -279,10 +381,29 @@ class GoGUI:
 
     def _draw(self):
         self.screen.fill(self.BG)
+        self._draw_board_background()
+        self._draw_board()
+        self._draw_panel()
+        if self.settings_open:
+            self._draw_settings()
+        if self.timeout_popup_text:
+            self._draw_timeout_popup()
+        pygame.display.flip()
+
+    def _draw_board_background(self):
+        if getattr(self, "_board_bg", None) is None:
+            self._build_board_background()
+        self.screen.blit(self._board_bg, (0, 0))
         pygame.draw.rect(
-            self.screen, (238, 220, 190),
-            (self.board_width, 0, self.panel_gap + self.panel_width, self.board_width),
+            self.screen, self.PANEL_BG,
+            (self.board_width, 0, self.panel_gap, self.window_height),
         )
+        pygame.draw.rect(
+            self.screen, self.PANEL_BG,
+            (self.panel_x, 0, self.panel_width, self.window_height),
+        )
+
+    def _draw_board(self):
         for index in range(self.board.size):
             x0, y0 = self._grid_to_pixel(0, index)
             x1, y1 = self._grid_to_pixel(self.board.size - 1, index)
@@ -291,20 +412,20 @@ class GoGUI:
             x1, y1 = self._grid_to_pixel(index, self.board.size - 1)
             pygame.draw.line(self.screen, self.LINE, (x0, y0), (x1, y1), 1)
 
-        for row in (3, 9, 15):
-            for col in (3, 9, 15):
-                pygame.draw.circle(self.screen, self.LINE, self._grid_to_pixel(row, col), 3)
+        for row, col in self._star_points():
+            pygame.draw.circle(self.screen, self.LINE, self._grid_to_pixel(row, col), 3)
 
-        radius = self.cell // 2 - 2
+        radius = max(4, int(self.cell // 2) - 2)
+        last_rc = self.last_move_rc
         for row in range(self.board.size):
             for col in range(self.board.size):
                 value = self.board.board[row][col]
                 if value == 0:
                     continue
-                point = self._grid_to_pixel(row, col)
-                color = self.BLACK if value == 1 else self.WHITE
-                pygame.draw.circle(self.screen, color, point, radius)
-                pygame.draw.circle(self.screen, self.LINE, point, radius, 1)
+                self._draw_stone(
+                    self._grid_to_pixel(row, col), value, radius,
+                    last=(row, col) == last_rc,
+                )
 
         candidates = (self.kata_analysis or {}).get("candidates") or []
         for index, candidate in enumerate(candidates[:4]):
@@ -319,104 +440,270 @@ class GoGUI:
             if index == 0:
                 pygame.draw.circle(self.screen, self.GREEN, point, radius + 3, 2)
             else:
-                pygame.draw.circle(self.screen, self.GOLD, point, 3)
+                pygame.draw.circle(self.screen, self.GOLD, point, 4)
 
-        if self.last_move_rc is not None:
-            pygame.draw.circle(self.screen, self.RED, self._grid_to_pixel(*self.last_move_rc), 3)
+        self._draw_hover_stone(radius)
+
         if self.edit_mode:
             pygame.draw.rect(
                 self.screen, self.GOLD,
                 (self.margin - 14, self.margin - 14,
-                 self.grid_span + 28,
-                 self.grid_span + 28),
+                 self.grid_span + 28, self.grid_span + 28),
                 3, border_radius=6,
             )
 
-        y = 24
-        for text, font, color in self.status_lines:
-            self.screen.blit(font.render(text, True, color), (self.panel_x, y))
-            y += font.get_height() + 3
+        self._draw_coordinates()
 
+    def _draw_stone(self, point, color, radius, last=False):
+        x, y = point
+        if color == 1:
+            base, highlight = self.BLACK, self.BLACK_HI
+        else:
+            base, highlight = self.WHITE, (255, 255, 255)
+        pygame.draw.circle(self.screen, self.BOARD_FRAME, (x + 1, y + 2), radius)
+        pygame.draw.circle(self.screen, base, (x, y), radius)
+        if color == 2:
+            pygame.draw.circle(self.screen, self.WHITE_SHADE, (x, y), radius, 1)
+        pygame.draw.circle(
+            self.screen, highlight,
+            (x - radius // 3, y - radius // 3), max(2, radius // 3),
+        )
+        if last:
+            marker = self.WHITE if color == 1 else self.BLACK
+            pygame.draw.circle(self.screen, marker, (x, y), max(2, radius // 4))
+
+    def _draw_hover_stone(self, radius):
+        if self.edit_mode or self.game_over or self.ai_thinking or self.analyzing:
+            return
+        if self.current_player != self.human_color:
+            return
+        x, y = pygame.mouse.get_pos()
+        if x >= self.board_width or y >= self.board_width:
+            return
+        grid = self._pixel_to_grid(x, y)
+        if grid is None:
+            return
+        row, col = grid
+        if self.board.board[row][col] != 0:
+            return
+        move = self.board.rc_to_coord(row, col)
+        if not self.board.is_legal(move, self.current_player, self.ko_point):
+            return
+        point = self._grid_to_pixel(row, col)
+        overlay = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        if self.human_color == 1:
+            pygame.draw.circle(overlay, (*self.BLACK, 115), (radius, radius), radius)
+        else:
+            pygame.draw.circle(overlay, (255, 255, 255, 140), (radius, radius), radius)
+            pygame.draw.circle(overlay, (40, 40, 40, 170), (radius, radius), radius, 1)
+        self.screen.blit(overlay, (point[0] - radius, point[1] - radius))
+
+    def _draw_coordinates(self):
+        label_color = (124, 88, 46)
+        for col in range(self.board.size):
+            x, _ = self._grid_to_pixel(0, col)
+            surface = self.small.render(self.board.cols[col], True, label_color)
+            self.screen.blit(surface, (x - surface.get_width() // 2, self.margin - 22))
+        for row in range(self.board.size):
+            _, y = self._grid_to_pixel(row, 0)
+            surface = self.small.render(str(self.board.size - row), True, label_color)
+            self.screen.blit(surface, (self.margin - 24, y - surface.get_height() // 2))
+
+    def _draw_panel(self):
         mouse = pygame.mouse.get_pos()
-        model_label = f"模型：{self.selected_model}（点击切换）"
-        thinking_labels = {
-            "disabled": "关闭",
-            "low": "低",
-            "high": "高",
-            "max": "最大",
-        }
-        thinking_label = f"思考：{thinking_labels[self.selected_thinking]}（点击切换）"
-        model_color = self.BTN_HOVER if self.btn_model.collidepoint(mouse) else self.BTN
-        thinking_color = self.BTN_HOVER if self.btn_thinking.collidepoint(mouse) else self.BTN
-        self._draw_button(self.btn_model, model_color, model_label)
-        self._draw_button(self.btn_thinking, thinking_color, thinking_label)
-        timeout_color = self.BTN_ACTIVE if self.thinking_timeout_active else self.BTN
-        self._draw_timeout_input(timeout_color)
-        edit_color_label = "黑子" if self.edit_color == 1 else "白子"
-        edit_color = self.BTN_HOVER if self.btn_edit_color.collidepoint(mouse) else self.BTN
-        self._draw_button(self.btn_edit_color, edit_color, f"编辑落子：{edit_color_label}")
-        reasoning_label = "思考链：关闭" if self.reasoning_window else "思考链：打开"
-        reasoning_color = self.BTN_HOVER if self.btn_reasoning.collidepoint(mouse) else self.BTN
-        self._draw_button(self.btn_reasoning, reasoning_color, reasoning_label)
+        panel_x = self.panel_x
 
+        title = self.big.render("GPT 围棋", True, self.TEXT)
+        subtitle = self.small.render("DeepSeek 选点 · KataGo 分析", True, self.DIM)
+        self.screen.blit(title, (panel_x + 16, 16))
+        self.screen.blit(subtitle, (panel_x + 16, 44))
+
+        card_top = 68
+        card_bottom = self.section_action_y - 8
+        self._draw_card(panel_x + 8, card_top, self.panel_width - 16, max(12, card_bottom - card_top))
+        y = card_top + 10
+        overflow = False
+        for text, font, color in self.status_lines:
+            for piece in self._wrap_text(text, font, self.panel_width - 36):
+                if y + font.get_height() > card_bottom - 8:
+                    overflow = True
+                    break
+                self.screen.blit(font.render(piece, True, color), (panel_x + 20, y))
+                y += font.get_height() + 4
+            if overflow:
+                break
+
+        if self.ai_thinking and self.thinking_deadline is not None:
+            remaining = max(0.0, self.thinking_deadline - time.monotonic())
+            countdown = self.font.render(f"剩余 {remaining:.1f}s", True, self.GOLD)
+            if y + countdown.get_height() <= card_bottom - 8:
+                self.screen.blit(countdown, (panel_x + 20, y))
+
+        for label, section_y in self.sections:
+            self._draw_section_header(section_y, label)
+
+        # 操作
         if self.analyzing:
             analyze_color, analyze_label = self.BTN_ACTIVE, "分析中…"
         elif self.edit_mode or self.ai_thinking:
             analyze_color, analyze_label = self.BTN_DISABLED, "分析局面"
         else:
-            analyze_color = self.BTN_HOVER if self.btn_analyze.collidepoint(mouse) else self.BTN
+            analyze_color = self._btn_color(self.btn_analyze, mouse, self.GOLD, self.BTN_ACTIVE_HOVER)
             analyze_label = "分析局面"
         self._draw_button(self.btn_analyze, analyze_color, analyze_label)
 
+        can_ai = (not self.ai_thinking and not self.edit_mode and not self.analyzing
+                   and not self.game_over and self.current_player == self.ai_color)
+        ai_color = (
+            self._btn_color(self.btn_ai, mouse, self.GREEN, (90, 204, 154))
+            if can_ai else self.BTN_DISABLED
+        )
+        self._draw_button(self.btn_ai, ai_color, "AI 走棋")
+
         can_undo = bool(self.snapshots) and not self.ai_thinking and not self.edit_mode and not self.analyzing
-        undo_color = self.BTN_HOVER if can_undo and self.btn_undo.collidepoint(mouse) else self.BTN if can_undo else self.BTN_DISABLED
+        undo_color = (
+            self._btn_color(self.btn_undo, mouse, self.BTN, self.BTN_HOVER)
+            if can_undo else self.BTN_DISABLED
+        )
         self._draw_button(self.btn_undo, undo_color, "回退")
 
         if self.edit_mode:
-            edit_color, edit_label = self.BTN_DANGER_HOVER if self.btn_edit.collidepoint(mouse) else self.BTN_DANGER, "退出编辑"
+            edit_toggle_color = (
+                self.BTN_DANGER_HOVER if self.btn_edit.collidepoint(mouse)
+                else self.BTN_DANGER
+            )
+            edit_label = "退出编辑"
         else:
-            edit_color = self.BTN_HOVER if not self.ai_thinking and self.btn_edit.collidepoint(mouse) else self.BTN if not self.ai_thinking else self.BTN_DISABLED
+            edit_toggle_color = (
+                self._btn_color(self.btn_edit, mouse, self.BTN, self.BTN_HOVER)
+                if not self.ai_thinking else self.BTN_DISABLED
+            )
             edit_label = "编辑棋盘"
-        self._draw_button(self.btn_edit, edit_color, edit_label)
+        self._draw_button(self.btn_edit, edit_toggle_color, edit_label)
 
-        can_ai = (not self.ai_thinking and not self.edit_mode and not self.analyzing
-                   and not self.game_over and self.current_player == self.ai_color)
-        ai_color = self.BTN_HOVER if can_ai and self.btn_ai.collidepoint(mouse) else self.BTN if can_ai else self.BTN_DISABLED
-        self._draw_button(self.btn_ai, ai_color, "AI 走棋")
-        if self.timeout_popup_text:
-            self._draw_timeout_popup()
-        pygame.display.flip()
+        # 视图
+        reasoning_label = "思考链：开启" if self.reasoning_window else "思考链：关闭"
+        self._draw_button(
+            self.btn_reasoning,
+            self._btn_color(self.btn_reasoning, mouse, self.BTN, self.BTN_HOVER),
+            reasoning_label,
+        )
+
+        # 设置
+        self._draw_button(
+            self.btn_settings,
+            self._btn_color(self.btn_settings, mouse, self.BTN, self.BTN_HOVER),
+            "设置",
+        )
+
+    def _draw_section_header(self, y, label):
+        x = self.panel_x + 16
+        surface = self.small.render(label, True, self.MUTED)
+        self.screen.blit(surface, (x, y))
+        line_y = y + surface.get_height() // 2
+        pygame.draw.line(
+            self.screen, self.PANEL_BG_2,
+            (x + surface.get_width() + 8, line_y),
+            (self.panel_x + self.panel_width - 16, line_y),
+        )
+
+    def _btn_color(self, rect, mouse, base, hover):
+        return hover if rect.collidepoint(mouse) else base
+
+    @staticmethod
+    def _wrap_text(text, font, max_width):
+        if font.size(text)[0] <= max_width:
+            return [text]
+        lines = []
+        current = ""
+        for char in text:
+            if current and font.size(current + char)[0] > max_width:
+                lines.append(current)
+                current = char
+            else:
+                current += char
+        if current:
+            lines.append(current)
+        return lines
+
+    def _draw_card(self, x, y, w, h):
+        rect = pygame.Rect(x, y, w, h)
+        pygame.draw.rect(self.screen, self.CARD_BG, rect, border_radius=10)
+        pygame.draw.rect(self.screen, self.PANEL_BG_2, rect, 1, border_radius=10)
 
     def _draw_button(self, rect, color, label):
-        pygame.draw.rect(self.screen, color, rect, border_radius=6)
+        pygame.draw.rect(self.screen, (16, 19, 28), rect.move(0, 2), border_radius=8)
+        pygame.draw.rect(self.screen, color, rect, border_radius=8)
+        top_highlight = tuple(min(255, channel + 26) for channel in color)
+        pygame.draw.line(
+            self.screen, top_highlight,
+            (rect.x + 8, rect.y + 1), (rect.right - 8, rect.y + 1),
+        )
         text = self.font.render(label, True, (255, 255, 255))
-        self.screen.blit(text, (rect.x + (rect.w - text.get_width()) // 2, rect.y + (rect.h - text.get_height()) // 2))
+        self.screen.blit(
+            text,
+            (rect.x + (rect.w - text.get_width()) // 2,
+             rect.centery - text.get_height() // 2),
+        )
 
-    def _draw_timeout_input(self, color):
-        pygame.draw.rect(self.screen, color, self.btn_timeout, border_radius=6)
-        border_color = self.WHITE if self.thinking_timeout_active else self.BTN_HOVER
-        pygame.draw.rect(self.screen, border_color, self.btn_timeout, 2, border_radius=6)
+    def _draw_settings(self):
+        overlay = pygame.Surface((self.window_width, self.window_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        self.screen.blit(overlay, (0, 0))
 
-        if self.ai_thinking and self.thinking_deadline is not None:
-            remaining = max(0.0, self.thinking_deadline - time.monotonic())
-            value = f"剩余 {remaining:.1f}s"
+        rect = self.settings_rect
+        pygame.draw.rect(self.screen, (38, 44, 60), rect, border_radius=12)
+        pygame.draw.rect(self.screen, self.PANEL_BG_2, rect, 1, border_radius=12)
+
+        title = self.big.render("设置", True, self.TEXT)
+        self.screen.blit(title, (rect.x + 30, rect.y + 22))
+
+        mouse = pygame.mouse.get_pos()
+        self._draw_setting_row("棋盘大小", self.setting_board_btn, f"{self.board.size} 路", mouse)
+        self._draw_setting_row("AI 模型", self.setting_model_btn, self.selected_model, mouse)
+        thinking_labels = {"disabled": "关闭", "low": "低", "high": "高", "max": "最大"}
+        self._draw_setting_row(
+            "思考深度", self.setting_thinking_btn,
+            thinking_labels[self.selected_thinking], mouse,
+        )
+
+        label = self.font.render("最长思考（秒）", True, self.DIM)
+        self.screen.blit(
+            label,
+            (rect.x + 30, self.setting_timeout_field.centery - label.get_height() // 2),
+        )
+        self._draw_settings_input(self.setting_timeout_field)
+
+        close_color = (
+            self.BTN_HOVER if self.settings_close_btn.collidepoint(mouse) else self.BTN
+        )
+        self._draw_button(self.settings_close_btn, close_color, "完成")
+
+    def _draw_setting_row(self, label, btn, value, mouse):
+        x = self.settings_rect.x + 30
+        surface = self.font.render(label, True, self.DIM)
+        self.screen.blit(surface, (x, btn.centery - surface.get_height() // 2))
+        color = self.BTN_HOVER if btn.collidepoint(mouse) else self.BTN
+        self._draw_button(btn, color, f"{value}（点击切换）")
+
+    def _draw_settings_input(self, field):
+        active = self.thinking_timeout_active
+        pygame.draw.rect(self.screen, (16, 19, 28), field.move(0, 2), border_radius=8)
+        pygame.draw.rect(self.screen, (50, 57, 75), field, border_radius=8)
+        border = self.GOLD if active else self.PANEL_BG_2
+        pygame.draw.rect(self.screen, border, field, 1, border_radius=8)
+
+        if active and self.timeout_edit_text is not None:
+            value = self.timeout_edit_text
         else:
-            value = self.thinking_timeout_text or "输入秒数"
-        label = self.small.render(f"最长思考：{value}", True, self.WHITE)
-        label_x = self.btn_timeout.x + 12
-        label_y = self.btn_timeout.centery - label.get_height() // 2
-        self.screen.blit(label, (label_x, label_y))
-
-        if self.thinking_timeout_active and (pygame.time.get_ticks() // 500) % 2 == 0:
-            prefix = self.small.render("最长思考：", True, self.WHITE)
-            value_surface = self.small.render(self.thinking_timeout_text, True, self.WHITE)
-            cursor_x = label_x + prefix.get_width() + value_surface.get_width()
+            value = self.thinking_timeout_text
+        label = self.font.render(value or "输入秒数", True, self.TEXT)
+        self.screen.blit(label, (field.x + 12, field.centery - label.get_height() // 2))
+        if active and (pygame.time.get_ticks() // 500) % 2 == 0:
+            cursor_x = field.x + 12 + label.get_width()
             pygame.draw.line(
-                self.screen,
-                self.WHITE,
-                (cursor_x, self.btn_timeout.y + 7),
-                (cursor_x, self.btn_timeout.bottom - 7),
-                2,
+                self.screen, self.TEXT,
+                (cursor_x, field.y + 8), (cursor_x, field.bottom - 8), 2,
             )
 
     def _draw_timeout_popup(self):
@@ -520,31 +807,12 @@ class GoGUI:
                     and self.timeout_popup_button.collidepoint(pos)):
                 self.timeout_popup_text = None
             return
-        if (button == 1 and self.thinking_timeout_active
-                and not self.btn_timeout.collidepoint(pos)):
-            self._finish_timeout_edit()
+        if self.settings_open:
+            self._handle_settings_click(pos, button)
+            return
         if button == 1:
-            if self.btn_timeout.collidepoint(pos):
-                if not self.thinking_timeout_active:
-                    self.thinking_timeout_active = True
-                    self.thinking_timeout_text = ""
-                    pygame.key.start_text_input()
-                return
-            if self.btn_model.collidepoint(pos):
-                if not self.ai_thinking and not self.analyzing:
-                    current = self.model_options.index(self.selected_model)
-                    self.selected_model = self.model_options[(current + 1) % len(self.model_options)]
-                    self._update_status()
-                return
-            if self.btn_thinking.collidepoint(pos):
-                if not self.ai_thinking and not self.analyzing:
-                    current = self.thinking_options.index(self.selected_thinking)
-                    self.selected_thinking = self.thinking_options[(current + 1) % len(self.thinking_options)]
-                    self._update_status()
-                return
-            if self.btn_edit_color.collidepoint(pos):
-                if not self.ai_thinking and not self.analyzing:
-                    self.edit_color = 3 - self.edit_color
+            if self.btn_settings.collidepoint(pos):
+                self._open_settings()
                 return
             if self.btn_reasoning.collidepoint(pos):
                 if self.reasoning_window:
@@ -583,23 +851,77 @@ class GoGUI:
         elif button == 3:
             self._try_play("pass")
 
+    def _handle_settings_click(self, pos, button):
+        if button != 1:
+            return
+        if self.setting_timeout_field.collidepoint(pos):
+            if not self.thinking_timeout_active:
+                self.thinking_timeout_active = True
+                self.timeout_edit_text = ""
+                pygame.key.start_text_input()
+            return
+        if self.thinking_timeout_active:
+            self._finish_timeout_edit()
+        if self.settings_close_btn.collidepoint(pos):
+            self._close_settings()
+            return
+        if self.setting_board_btn.collidepoint(pos):
+            self._switch_board_size()
+            return
+        if self.setting_model_btn.collidepoint(pos):
+            self._cycle_model()
+            return
+        if self.setting_thinking_btn.collidepoint(pos):
+            self._cycle_thinking()
+            return
+
+    def _open_settings(self):
+        self.settings_open = True
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        pygame.key.stop_text_input()
+
+    def _close_settings(self):
+        self.settings_open = False
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        pygame.key.stop_text_input()
+
+    def _cycle_model(self):
+        current = self.model_options.index(self.selected_model)
+        self.selected_model = self.model_options[(current + 1) % len(self.model_options)]
+
+    def _cycle_thinking(self):
+        current = self.thinking_options.index(self.selected_thinking)
+        self.selected_thinking = self.thinking_options[(current + 1) % len(self.thinking_options)]
+
     def _handle_keydown(self, event):
+        if event.key == pygame.K_ESCAPE:
+            if self.thinking_timeout_active:
+                self._cancel_timeout_edit()
+            elif self.settings_open:
+                self._close_settings()
+            return
         if not self.thinking_timeout_active:
             return
         if event.key == pygame.K_RETURN:
             self._finish_timeout_edit()
         elif event.key == pygame.K_BACKSPACE:
-            self.thinking_timeout_text = self.thinking_timeout_text[:-1]
-        elif event.key == pygame.K_ESCAPE:
-            self._finish_timeout_edit()
+            self.timeout_edit_text = (self.timeout_edit_text or "")[:-1]
         elif event.unicode and event.unicode in "0123456789.":
             self._append_timeout_text(event.unicode)
 
     def _finish_timeout_edit(self):
+        if self.thinking_timeout_active and (self.timeout_edit_text or "").strip():
+            self.thinking_timeout_text = self.timeout_edit_text.strip()
         self.thinking_timeout_active = False
+        self.timeout_edit_text = None
         pygame.key.stop_text_input()
-        if not self.thinking_timeout_text:
-            self.thinking_timeout_text = "30"
+
+    def _cancel_timeout_edit(self):
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        pygame.key.stop_text_input()
 
     def _handle_text_input(self, text):
         for char in text:
@@ -608,8 +930,9 @@ class GoGUI:
     def _append_timeout_text(self, char):
         if not self.thinking_timeout_active or char not in "0123456789.":
             return
-        if char != "." or "." not in self.thinking_timeout_text:
-            self.thinking_timeout_text += char
+        current = self.timeout_edit_text or ""
+        if char != "." or "." not in current:
+            self.timeout_edit_text = current + char
 
     def _get_thinking_timeout(self):
         try:
@@ -624,7 +947,7 @@ class GoGUI:
             return
         row, col = grid
         if button == 1:
-            self.board.board[row][col] = self.edit_color
+            self.board.board[row][col] = (self.board.board[row][col] + 1) % 3
         elif button == 3:
             self.board.board[row][col] = 0
         self.kata_analysis = None
@@ -639,6 +962,7 @@ class GoGUI:
         self.last_move_rc = None
         self.last_move_str = None
         self.captured = []
+        self.captured_count = {1: 0, 2: 0}
         self.history = []
         self.move_actors = []
         self.game_over = False
@@ -682,6 +1006,7 @@ class GoGUI:
         else:
             captured, new_ko = self.board.play(move, player, self.ko_point)
             self.captured = captured
+            self.captured_count[player] += len(captured)
             self.ko_point = new_ko
             self.last_move_rc = self.board.coord_to_rc(move)
             self.last_move_str = move
@@ -695,6 +1020,45 @@ class GoGUI:
             self.game_over = True
         self._update_status()
         if not self.game_over and self.current_player == self.ai_color:
+            self._start_ai_turn()
+
+    def _switch_board_size(self):
+        if self.ai_thinking or self.analyzing:
+            return
+        current = self.board.size
+        sizes = self.board_sizes
+        index = sizes.index(current) if current in sizes else 0
+        next_size = sizes[(index + 1) % len(sizes)]
+        try:
+            self.analyzer.set_boardsize(next_size)
+        except Exception:
+            pass
+        self.board = GoBoard(next_size)
+        self._reset_game()
+        self._layout_window(self.window_width, self.window_height)
+        self._update_status()
+
+    def _reset_game(self):
+        self.current_player = 1
+        self.last_move_rc = None
+        self.last_move_str = None
+        self.captured = []
+        self.captured_count = {1: 0, 2: 0}
+        self.ko_point = None
+        self.history = []
+        self.move_actors = []
+        self.game_over = False
+        self.edit_mode = False
+        self.ai_thinking = False
+        self.analyzing = False
+        self.kata_analysis = None
+        self.gpt_eval = None
+        self.snapshots = []
+        self.reasoning_text = ""
+        self.timeout_popup_text = None
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        if self.current_player == self.ai_color:
             self._start_ai_turn()
 
     def _start_ai_turn(self):
@@ -739,6 +1103,7 @@ class GoGUI:
                     history,
                     model=model,
                     thinking_effort=thinking_effort,
+                    komi=self.komi,
                     return_reasoning=True,
                     on_reasoning=on_reasoning,
                     max_thinking_seconds=max_thinking_seconds,
