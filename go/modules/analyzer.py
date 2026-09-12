@@ -13,8 +13,8 @@
         返回已初始化的分析器对象；初始化会发送棋盘大小、贴目和清盘命令。
     set_boardsize(size: int) -> None
         切换 KataGo 的棋盘大小并清盘。
-    set_board(board_state: list[list[int]], cols: str, size=None) -> None
-        输入当前棋盘数组、列标签和边长，将局面同步到 KataGo。
+    set_board(board_state: list[list[int]], size=None) -> None
+        输入当前棋盘数组和边长，将局面同步到 KataGo。
     analyze(player: int, max_visits=300) -> dict
         输入当前玩家和最大访问次数，返回分析结果字典。
     close() -> None
@@ -32,6 +32,7 @@
 import os
 import subprocess
 import tempfile
+import threading
 
 
 class GoAnalyzer:
@@ -39,14 +40,11 @@ class GoAnalyzer:
         self.komi = komi
         self.rules = rules
         self.size = size
-        self.proc = subprocess.Popen(
-            [katago_bin, "gtp", "-model", model_path, "-config", config_path],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            bufsize=1,
-        )
+        self._bin = katago_bin
+        self._model = model_path
+        self._config = config_path
+        self._restarting = False
+        self._spawn()
         self._send(f"boardsize {size}")
         try:
             self._send(f"kata-set-rules {rules}")
@@ -56,29 +54,83 @@ class GoAnalyzer:
         self._send(f"komi {komi}")
         self._send("clear_board")
 
+    def _spawn(self):
+        self.proc = subprocess.Popen(
+            [self._bin, "gtp", "-model", self._model, "-config", self._config],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+        )
+
+    def _restart(self):
+        try:
+            self.proc.terminate()
+        except Exception:
+            pass
+        try:
+            self.proc.wait(timeout=2)
+        except Exception:
+            try:
+                self.proc.kill()
+            except Exception:
+                pass
+        self._spawn()
+        self._send(f"boardsize {self.size}")
+        try:
+            self._send(f"kata-set-rules {self.rules}")
+        except RuntimeError:
+            pass
+        self._send(f"komi {self.komi}")
+        self._send("clear_board")
+
     def set_boardsize(self, size):
         self.size = size
         self._send(f"boardsize {size}")
         self._send("clear_board")
 
-    def _send(self, cmd):
+    def _send(self, cmd, timeout=60.0):
         self.proc.stdin.write(cmd + "\n")
         self.proc.stdin.flush()
-        lines = []
-        while True:
-            line = self.proc.stdout.readline()
-            if not line:
-                break
-            line = line.rstrip("\n")
-            if line == "":
-                break
-            lines.append(line)
+        stream = self.proc.stdout
+        result = {}
+
+        def reader():
+            lines = []
+            try:
+                while True:
+                    line = stream.readline()
+                    if not line:
+                        break
+                    line = line.rstrip("\n")
+                    if line == "":
+                        break
+                    lines.append(line)
+                result["lines"] = lines
+            except Exception as error:
+                result["error"] = error
+
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        thread.join(timeout)
+        if thread.is_alive():
+            if not self._restarting:
+                self._restarting = True
+                try:
+                    self._restart()
+                finally:
+                    self._restarting = False
+            raise TimeoutError(f"KataGo 命令超时: {cmd}")
+        if "error" in result:
+            raise result["error"]
+        lines = result.get("lines", [])
         for line in lines:
             if line.startswith("?"):
                 raise RuntimeError(f"分析引擎错误: {line}")
         return lines
 
-    def set_board(self, board_state, cols, size=None):
+    def set_board(self, board_state, size=None):
         """通过临时 SGF 文件同步任意黑白棋盘局面。"""
         size = self.size if size is None else size
         if size != self.size:

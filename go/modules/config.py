@@ -36,10 +36,16 @@ MODEL_OPTIONS = ("deepseek-flash", "deepseek-v4-pro")
 THINKING_OPTIONS = ("disabled", "low", "high", "max")
 
 BOARD_SIZES = (9, 13, 19)
-BOARD_SIZE = int(os.getenv("GO_BOARD_SIZE", "19"))
+try:
+    BOARD_SIZE = int(os.getenv("GO_BOARD_SIZE", "19"))
+except ValueError:
+    BOARD_SIZE = 19
 if BOARD_SIZE not in BOARD_SIZES:
     BOARD_SIZE = 19
-KOMI = float(os.getenv("GO_KOMI", "7.5"))
+try:
+    KOMI = float(os.getenv("GO_KOMI", "7.5"))
+except ValueError:
+    KOMI = 7.5
 RULES = os.getenv("GO_RULES", "tromp-taylor")
 
 KATAGO_BIN = os.getenv("KATAGO_BIN")

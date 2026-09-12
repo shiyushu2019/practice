@@ -46,6 +46,21 @@ except ImportError:
 
 
 def main():
+    missing = []
+    if not OPENAI_API_KEY:
+        missing.append("DEEPSEEK_API_KEY")
+    if not KATAGO_BIN:
+        missing.append("KATAGO_BIN")
+    if not KATAGO_MODEL:
+        missing.append("KATAGO_MODEL")
+    if not KATAGO_CONFIG:
+        missing.append("KATAGO_CONFIG")
+    if missing:
+        raise SystemExit(
+            "缺少必要的环境变量: " + ", ".join(missing)
+            + "\n请设置后再启动（DEEPSEEK_API_KEY 与 KATAGO_BIN/MODEL/CONFIG）。"
+        )
+
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL)
     analyzer = GoAnalyzer(
         KATAGO_BIN,

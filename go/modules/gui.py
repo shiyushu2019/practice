@@ -101,8 +101,15 @@ class GoGUI:
         self.thinking_timeout_text = "30"
         self.thinking_timeout_active = False
         self.timeout_edit_text = None
-        self.thinking_deadline = None
+        self.thinking_start = None
         self.settings_open = False
+        self.visit_options = (100, 300, 1000, 3000)
+        self.selected_visits = 300
+        self.memory_enabled = False
+        self.last_ai_reasoning = ""
+        self.confirm_text = None
+        self.confirm_action = None
+        self.notice_text = None
         self.reasoning_text = ""
         self.reasoning_window = None
         self.reasoning_renderer = None
@@ -132,6 +139,7 @@ class GoGUI:
         self.history = []
         self.move_actors = []
         self.game_over = False
+        self.game_result = None
         self.edit_mode = False
         self.ai_thinking = False
         self.analyzing = False
@@ -141,6 +149,9 @@ class GoGUI:
         self.snapshots = []
         self.status_lines = []
         self.timeout_popup_text = None
+        self.total_tokens = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
         self._update_status()
 
         if self.current_player == self.ai_color:
@@ -214,7 +225,7 @@ class GoGUI:
 
     def _layout_settings(self):
         width = min(540, self.window_width - 80)
-        height = min(500, self.window_height - 80)
+        height = min(460, self.window_height - 80)
         x = (self.window_width - width) // 2
         y = (self.window_height - height) // 2
         self.settings_rect = pygame.Rect(x, y, width, height)
@@ -230,6 +241,10 @@ class GoGUI:
         self.setting_thinking_btn = pygame.Rect(right_x, ry, right_w, row_h)
         ry += row_h + row_gap
         self.setting_timeout_field = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_visits_btn = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_memory_btn = pygame.Rect(right_x, ry, right_w, row_h)
 
         close_w = 110
         self.settings_close_btn = pygame.Rect(
@@ -300,6 +315,7 @@ class GoGUI:
             "history": list(self.history),
             "move_actors": list(self.move_actors),
             "game_over": self.game_over,
+            "game_result": self.game_result,
         })
 
     def _pop_snapshot(self):
@@ -316,6 +332,7 @@ class GoGUI:
         self.history = snapshot["history"]
         self.move_actors = snapshot["move_actors"]
         self.game_over = snapshot["game_over"]
+        self.game_result = snapshot.get("game_result")
         self.kata_analysis = None
         self.gpt_eval = None
         return True
@@ -324,7 +341,7 @@ class GoGUI:
         if self.edit_mode:
             status = "编辑模式（左键循环 空→黑→白→空，右键清除）"
         elif self.game_over:
-            status = "对局结束"
+            status = self.game_result or "对局结束"
         elif self.ai_thinking:
             status = "AI 思考中…"
         elif self.analyzing:
@@ -339,6 +356,10 @@ class GoGUI:
         lines.append((
             f"{self.board.size} 路 · 贴目 {self.komi:g} · {rules_label} · "
             f"提子 黑{self.captured_count[1]}/白{self.captured_count[2]}",
+            self.small, self.DIM,
+        ))
+        lines.append((
+            f"Token 消耗：{self.total_tokens:,}（提示 {self.prompt_tokens:,} / 补全 {self.completion_tokens:,}）",
             self.small, self.DIM,
         ))
 
@@ -388,6 +409,10 @@ class GoGUI:
             self._draw_settings()
         if self.timeout_popup_text:
             self._draw_timeout_popup()
+        if self.confirm_text:
+            self._draw_confirm_popup()
+        if self.notice_text:
+            self._draw_notice_popup()
         pygame.display.flip()
 
     def _draw_board_background(self):
@@ -533,9 +558,9 @@ class GoGUI:
             if overflow:
                 break
 
-        if self.ai_thinking and self.thinking_deadline is not None:
-            remaining = max(0.0, self.thinking_deadline - time.monotonic())
-            countdown = self.font.render(f"剩余 {remaining:.1f}s", True, self.GOLD)
+        if self.ai_thinking and self.thinking_start is not None:
+            elapsed = max(0.0, time.monotonic() - self.thinking_start)
+            countdown = self.font.render(f"已思考 {elapsed:.1f}s", True, self.GOLD)
             if y + countdown.get_height() <= card_bottom - 8:
                 self.screen.blit(countdown, (panel_x + 20, y))
 
@@ -674,6 +699,14 @@ class GoGUI:
         )
         self._draw_settings_input(self.setting_timeout_field)
 
+        self._draw_setting_row(
+            "KataGo 计算量", self.setting_visits_btn, f"{self.selected_visits} 次", mouse,
+        )
+        self._draw_setting_row(
+            "跨手记忆", self.setting_memory_btn,
+            "开" if self.memory_enabled else "关", mouse,
+        )
+
         close_color = (
             self.BTN_HOVER if self.settings_close_btn.collidepoint(mouse) else self.BTN
         )
@@ -740,6 +773,67 @@ class GoGUI:
         )
         self._draw_button(self.timeout_popup_button, color, "知道了")
 
+    def _draw_confirm_popup(self):
+        width = min(460, self.window_width - 80)
+        height = 160
+        box = pygame.Rect(
+            (self.window_width - width) // 2,
+            (self.window_height - height) // 2,
+            width,
+            height,
+        )
+        overlay = pygame.Surface((self.window_width, self.window_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 140))
+        self.screen.blit(overlay, (0, 0))
+        pygame.draw.rect(self.screen, (42, 47, 58), box, border_radius=10)
+        pygame.draw.rect(self.screen, self.GOLD, box, 2, border_radius=10)
+
+        message = self.font.render(self.confirm_text, True, self.TEXT)
+        self.screen.blit(message, (box.x + 24, box.y + 28))
+
+        self.confirm_ok_btn = pygame.Rect(box.right - 210, box.bottom - 54, 90, 34)
+        self.confirm_cancel_btn = pygame.Rect(box.right - 110, box.bottom - 54, 90, 34)
+        mouse = pygame.mouse.get_pos()
+        ok_color = (
+            self.BTN_DANGER_HOVER if self.confirm_ok_btn.collidepoint(mouse)
+            else self.BTN_DANGER
+        )
+        cancel_color = (
+            self.BTN_HOVER if self.confirm_cancel_btn.collidepoint(mouse)
+            else self.BTN
+        )
+        self._draw_button(self.confirm_ok_btn, ok_color, "确定")
+        self._draw_button(self.confirm_cancel_btn, cancel_color, "取消")
+
+    def _draw_notice_popup(self):
+        width = min(520, self.window_width - 80)
+        height = 170
+        box = pygame.Rect(
+            (self.window_width - width) // 2,
+            (self.window_height - height) // 2,
+            width,
+            height,
+        )
+        overlay = pygame.Surface((self.window_width, self.window_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        self.screen.blit(overlay, (0, 0))
+        pygame.draw.rect(self.screen, (42, 47, 58), box, border_radius=10)
+        pygame.draw.rect(self.screen, self.BLUE, box, 2, border_radius=10)
+
+        title = self.font.render("提示", True, self.WHITE)
+        self.screen.blit(title, (box.x + 24, box.y + 20))
+        y = box.y + 56
+        for line in self._wrap_text(self.notice_text, self.small, width - 48):
+            if y > box.bottom - 60:
+                break
+            self.screen.blit(self.small.render(line, True, (225, 228, 235)), (box.x + 24, y))
+            y += self.small.get_height() + 4
+
+        self.notice_button = pygame.Rect(box.right - 118, box.bottom - 48, 94, 32)
+        mouse = pygame.mouse.get_pos()
+        color = self.BTN_HOVER if self.notice_button.collidepoint(mouse) else self.BTN
+        self._draw_button(self.notice_button, color, "知道了")
+
     def _render_reasoning_window(self):
         if self.reasoning_window is None or self.reasoning_renderer is None:
             return
@@ -801,6 +895,22 @@ class GoGUI:
         self.reasoning_renderer = None
 
     def _handle_click(self, pos, button):
+        if self.notice_text:
+            if button == 1 and hasattr(self, "notice_button") and self.notice_button.collidepoint(pos):
+                self.notice_text = None
+            return
+        if self.confirm_text:
+            if button == 1:
+                if self.confirm_ok_btn.collidepoint(pos):
+                    action = self.confirm_action
+                    self.confirm_text = None
+                    self.confirm_action = None
+                    if action:
+                        action()
+                elif self.confirm_cancel_btn.collidepoint(pos):
+                    self.confirm_text = None
+                    self.confirm_action = None
+            return
         if self.timeout_popup_text:
             if (button == 1
                     and hasattr(self, "timeout_popup_button")
@@ -866,13 +976,19 @@ class GoGUI:
             self._close_settings()
             return
         if self.setting_board_btn.collidepoint(pos):
-            self._switch_board_size()
+            self._request_board_switch()
             return
         if self.setting_model_btn.collidepoint(pos):
             self._cycle_model()
             return
         if self.setting_thinking_btn.collidepoint(pos):
             self._cycle_thinking()
+            return
+        if self.setting_visits_btn.collidepoint(pos):
+            self._cycle_visits()
+            return
+        if self.setting_memory_btn.collidepoint(pos):
+            self.memory_enabled = not self.memory_enabled
             return
 
     def _open_settings(self):
@@ -895,6 +1011,19 @@ class GoGUI:
         current = self.thinking_options.index(self.selected_thinking)
         self.selected_thinking = self.thinking_options[(current + 1) % len(self.thinking_options)]
 
+    def _cycle_visits(self):
+        current = self.visit_options.index(self.selected_visits)
+        self.selected_visits = self.visit_options[(current + 1) % len(self.visit_options)]
+
+    def _request_board_switch(self):
+        if self.ai_thinking or self.analyzing:
+            return
+        if self.edit_mode or self.history:
+            self.confirm_text = "切换棋盘大小会重开新局并清空当前局面，确定继续？"
+            self.confirm_action = self._switch_board_size
+        else:
+            self._switch_board_size()
+
     def _handle_keydown(self, event):
         if event.key == pygame.K_ESCAPE:
             if self.thinking_timeout_active:
@@ -908,8 +1037,6 @@ class GoGUI:
             self._finish_timeout_edit()
         elif event.key == pygame.K_BACKSPACE:
             self.timeout_edit_text = (self.timeout_edit_text or "")[:-1]
-        elif event.unicode and event.unicode in "0123456789.":
-            self._append_timeout_text(event.unicode)
 
     def _finish_timeout_edit(self):
         if self.thinking_timeout_active and (self.timeout_edit_text or "").strip():
@@ -991,6 +1118,19 @@ class GoGUI:
         self._apply_move(move, actor="human")
 
     def _apply_move(self, move, actor):
+        if move.lower() == "resign":
+            self._push_snapshot()
+            player = self.current_player
+            resign_color = "黑" if player == 1 else "白"
+            winner = "白" if player == 1 else "黑"
+            self.history.append(f"{resign_color} 认输")
+            self.move_actors.append(actor)
+            self.game_over = True
+            self.game_result = f"{winner}方胜（{resign_color}方认输）"
+            self.kata_analysis = None
+            self.gpt_eval = None
+            self._update_status()
+            return
         if move.lower() != "pass":
             legal = self.board.legal_moves(self.current_player, self.ko_point)
             if move.lower() not in {item.lower() for item in legal}:
@@ -1048,6 +1188,7 @@ class GoGUI:
         self.history = []
         self.move_actors = []
         self.game_over = False
+        self.game_result = None
         self.edit_mode = False
         self.ai_thinking = False
         self.analyzing = False
@@ -1058,6 +1199,11 @@ class GoGUI:
         self.timeout_popup_text = None
         self.thinking_timeout_active = False
         self.timeout_edit_text = None
+        self.notice_text = None
+        self.total_tokens = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.last_ai_reasoning = ""
         if self.current_player == self.ai_color:
             self._start_ai_turn()
 
@@ -1076,16 +1222,23 @@ class GoGUI:
         model = self.selected_model
         thinking_effort = self.selected_thinking
         max_thinking_seconds = self._get_thinking_timeout()
-        self.thinking_deadline = time.monotonic() + max_thinking_seconds
+        self.thinking_start = time.monotonic()
         self.reasoning_text = ""
         self.timeout_popup_text = None
         if self.reasoning_window:
             self._render_reasoning_window()
+        prev_reasoning = self.last_ai_reasoning if self.memory_enabled else ""
 
         def worker():
             try:
                 def on_reasoning(text):
                     self.queue.put(("reasoning_delta", text))
+
+                def on_usage(usage):
+                    self.queue.put(("usage", usage))
+
+                def on_illegal(parsed_move, raw_content, attempt):
+                    self.queue.put(("illegal_move", parsed_move, raw_content, attempt))
 
                 def on_timeout():
                     self.queue.put((
@@ -1106,6 +1259,9 @@ class GoGUI:
                     komi=self.komi,
                     return_reasoning=True,
                     on_reasoning=on_reasoning,
+                    on_usage=on_usage,
+                    previous_reasoning=prev_reasoning or None,
+                    on_illegal=on_illegal,
                     max_thinking_seconds=max_thinking_seconds,
                     on_timeout=on_timeout,
                 )
@@ -1123,13 +1279,13 @@ class GoGUI:
         last_actor = self.move_actors[-1] if self.move_actors else None
         last_move = self.last_move_str
         analyzer = self.analyzer
-        cols = self.board.cols
         size = self.board.size
+        visits = self.selected_visits
 
         def worker():
             try:
-                analyzer.set_board(board_snapshot, cols, size)
-                analysis = analyzer.analyze(player)
+                analyzer.set_board(board_snapshot, size)
+                analysis = analyzer.analyze(player, max_visits=visits)
                 evaluation = None
                 if last_actor == "ai" and last_move and last_move.lower() != "pass":
                     evaluation = evaluate_gpt_move(analysis, last_move)
@@ -1150,6 +1306,8 @@ class GoGUI:
                     self._handle_click(event.pos, event.button)
                 elif event.type == pygame.KEYDOWN:
                     self._handle_keydown(event)
+                elif event.type == pygame.TEXTINPUT:
+                    self._handle_text_input(event.text)
                 elif event.type == pygame.WINDOWCLOSE:
                     window_event = getattr(event, "window", None)
                     window_id = getattr(window_event, "windowID", None)
@@ -1173,18 +1331,33 @@ class GoGUI:
                 kind = message[0]
                 if kind == "ai_done":
                     self.ai_thinking = False
-                    self.thinking_deadline = None
+                    self.thinking_start = None
                     move = message[1]
                     self.reasoning_text = message[2] or "模型没有返回思考内容。"
-                    legal = self.board.legal_moves(self.current_player, self.ko_point)
-                    if move.lower() != "pass" and move.lower() not in {item.lower() for item in legal}:
-                        move = "pass"
-                    self._apply_move(move, actor="ai")
+                    self.last_ai_reasoning = message[2] or ""
+                    if move.lower() == "resign":
+                        self._apply_move("resign", actor="ai")
+                    else:
+                        legal = self.board.legal_moves(self.current_player, self.ko_point)
+                        if move.lower() != "pass" and move.lower() not in {item.lower() for item in legal}:
+                            move = "pass"
+                        self._apply_move(move, actor="ai")
                 elif kind == "reasoning_delta":
                     self.reasoning_text += message[1]
                     self._render_reasoning_window()
+                elif kind == "usage":
+                    usage = message[1] or {}
+                    self.prompt_tokens += usage.get("prompt_tokens", 0)
+                    self.completion_tokens += usage.get("completion_tokens", 0)
+                    self.total_tokens += usage.get("total_tokens", 0)
+                    self._update_status()
+                elif kind == "illegal_move":
+                    parsed, attempt = message[1], message[3]
+                    if parsed:
+                        self.notice_text = f"GPT 第 {attempt} 次请求了非法着法「{parsed}」，已重新提交会话。"
+                    else:
+                        self.notice_text = f"GPT 第 {attempt} 次输出了无法解析的内容，已重新提交会话。"
                 elif kind == "thinking_timeout":
-                    self.thinking_deadline = time.monotonic()
                     self.timeout_popup_text = (
                         f"AI 思考已超时（{message[1]:g}s），正在使用遗产快速决策…"
                     )
@@ -1198,7 +1371,7 @@ class GoGUI:
                     self.status_lines = [(f"分析失败: {message[1]}", self.font, self.RED)]
                 elif kind == "err":
                     self.ai_thinking = False
-                    self.thinking_deadline = None
+                    self.thinking_start = None
                     self.status_lines = [(
                         f"AI 调用失败，请点击「AI 走棋」重试: {message[1]}",
                         self.font,
