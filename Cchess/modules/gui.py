@@ -1,0 +1,1414 @@
+"""实现 pygame 图形界面、用户交互和后台任务状态管理（中国象棋）。
+
+``CchessGUI`` 连接 CchessBoard、OpenAI 兼容客户端和 CchessAnalyzer：主线程
+负责绘制棋盘、按钮和状态文字，后台线程负责 GPT 请求及局面分析，结果通过
+线程安全队列回到主循环。模块会维护当前玩家、历史、回退快照、分析结果和
+对局结束状态。
+
+主要接口：
+    CchessGUI(board: CchessBoard, client, analyzer: CchessAnalyzer, human_color=1)
+        输入棋盘对象、模型客户端、分析器和人类执棋颜色，创建窗口并初始化
+        对局状态；``human_color`` 使用 ``1`` 表示红方、``2`` 表示黑方。
+    run() -> None
+        启动 pygame 事件循环，直到收到关闭窗口事件；退出时调用
+        ``pygame.quit()``。
+
+调用方式：
+    ``gui = CchessGUI(board, client, analyzer, human_color=1)``，然后调用
+    ``gui.run()``。通常由 ``main.py`` 创建依赖并启动。
+"""
+
+import os
+import queue
+import threading
+import time
+
+import pygame
+from pygame._sdl2 import video
+
+try:
+    from .analyzer import evaluate_gpt_move
+    from .board import (
+        CchessBoard, RED, BLACK,
+        KING, ADVISOR, ELEPHANT, HORSE, ROOK, CANNON, PAWN,
+    )
+    from .config import DEPTH_OPTIONS, MODEL, MODEL_OPTIONS, THINKING_OPTIONS
+    from .player import ask_model_for_move
+except ImportError:
+    from modules.analyzer import evaluate_gpt_move
+    from modules.board import (
+        CchessBoard, RED, BLACK,
+        KING, ADVISOR, ELEPHANT, HORSE, ROOK, CANNON, PAWN,
+    )
+    from modules.config import DEPTH_OPTIONS, MODEL, MODEL_OPTIONS, THINKING_OPTIONS
+    from modules.player import ask_model_for_move
+
+
+PIECE_CHARS = {
+    RED: {KING: "帅", ADVISOR: "仕", ELEPHANT: "相", HORSE: "马", ROOK: "车", CANNON: "炮", PAWN: "兵"},
+    BLACK: {KING: "将", ADVISOR: "士", ELEPHANT: "象", HORSE: "马", ROOK: "车", CANNON: "炮", PAWN: "卒"},
+}
+
+
+class CchessGUI:
+    MIN_WINDOW_WIDTH = 900
+    MIN_WINDOW_HEIGHT = 680
+
+    BG = (22, 26, 37)
+    PANEL_BG = (31, 36, 50)
+    PANEL_BG_2 = (43, 49, 66)
+    CARD_BG = (50, 57, 75)
+
+    BOARD_TOP = (236, 200, 142)
+    BOARD_BOTTOM = (203, 159, 101)
+    LINE = (94, 64, 35)
+    RIVER_TEXT = (150, 110, 60)
+
+    PIECE_FILL = (246, 232, 194)
+    PIECE_EDGE = (116, 78, 40)
+    RED_TEXT = (198, 40, 40)
+    BLACK_TEXT = (34, 34, 38)
+
+    SELECT = (246, 215, 90)
+    LAST_MOVE = (205, 210, 106)
+    CHECK = (235, 87, 87)
+
+    RED = (235, 87, 87)
+    BLUE = (94, 158, 255)
+    GREEN = (56, 180, 127)
+    GOLD = (242, 181, 60)
+
+    TEXT = (232, 235, 243)
+    DIM = (158, 166, 186)
+    MUTED = (118, 125, 145)
+
+    BTN = (62, 86, 158)
+    BTN_HOVER = (80, 108, 188)
+    BTN_DISABLED = (88, 94, 112)
+    BTN_DANGER = (186, 70, 70)
+    BTN_DANGER_HOVER = (214, 90, 90)
+    BTN_ACTIVE = (212, 150, 46)
+    BTN_ACTIVE_HOVER = (232, 168, 58)
+
+    def __init__(self, board, client, analyzer, human_color=1):
+        pygame.init()
+        self.board = board
+        self.client = client
+        self.analyzer = analyzer
+        self.human_color = human_color
+        self.ai_color = 3 - human_color
+        self.model_options = MODEL_OPTIONS
+        self.thinking_options = THINKING_OPTIONS
+        self.depth_options = DEPTH_OPTIONS
+        self.selected_model = MODEL if MODEL in self.model_options else self.model_options[0]
+        self.selected_thinking = "low"
+        self.selected_depth = 2 if 2 in self.depth_options else self.depth_options[0]
+        self.thinking_timeout_text = "30"
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        self.thinking_start = None
+        self.settings_open = False
+        self.memory_enabled = False
+        self.last_ai_reasoning = ""
+        self.confirm_text = None
+        self.confirm_action = None
+        self.notice_text = None
+        self.reasoning_text = ""
+        self.reasoning_window = None
+        self.reasoning_renderer = None
+
+        self.margin = 40
+        self.cell = 50
+        self.panel_gap = 28
+        self.panel_width = 260
+        self._layout_window(self.MIN_WINDOW_WIDTH, self.MIN_WINDOW_HEIGHT)
+        self.screen = pygame.display.set_mode((self.window_width, self.window_height))
+        pygame.display.set_caption("GPT 中国象棋（内置分析）")
+
+        self.font = self._load_font(15)
+        self.small = self._load_font(13)
+        self.big = self._load_font(18)
+        self.piece_font = self._load_font(int(self.cell * 0.8))
+        self.river_font = self._load_font(max(16, int(self.cell * 0.5)))
+
+        self.current_player = 1
+        self.selected_rc = None
+        self.legal_targets = []
+        self.last_from = None
+        self.last_to = None
+        self.last_move_str = None
+        self.history = []
+        self.move_actors = []
+        self.game_over = False
+        self.game_result = None
+        self.edit_mode = False
+        self.ai_thinking = False
+        self.analyzing = False
+        self.queue = queue.Queue()
+        self.engine_analysis = None
+        self.gpt_eval = None
+        self.snapshots = []
+        self.status_lines = []
+        self.timeout_popup_text = None
+        self.total_tokens = 0
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        self.ai_error_retries = 0
+        self._update_status()
+
+        if self.current_player == self.ai_color:
+            self._start_ai_turn()
+
+    # ------------------------------------------------------------------ #
+    # 布局与字体
+    # ------------------------------------------------------------------ #
+    def _layout_window(self, width, height):
+        width = max(self.MIN_WINDOW_WIDTH, int(width))
+        self.window_width = width
+        self.panel_width = min(320, max(260, width // 4))
+        self.panel_gap = min(28, max(20, width // 40))
+        available = width - self.panel_width - self.panel_gap
+        self.margin = 40
+        self.cell = max(1, int((available - 2 * self.margin) / 8))
+        self.board_pixel = 2 * self.margin + 8 * self.cell
+        self.board_height = 2 * self.margin + 9 * self.cell
+        height = max(self.MIN_WINDOW_HEIGHT, int(self.board_height), int(height))
+        self.window_height = height
+        self.panel_x = self.board_pixel + self.panel_gap
+
+        button_width = self.panel_width
+        button_h, gap = 32, 6
+        section_gap = 12
+        header_h, header_gap = 16, 6
+
+        block_height = (
+            (header_h + header_gap + 4 * button_h + 3 * gap)
+            + section_gap
+            + (header_h + header_gap + button_h)
+            + section_gap
+            + button_h
+        )
+        y = height - block_height - 10
+
+        self.section_action_y = y
+        y += header_h + header_gap
+        self.btn_analyze = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + gap
+        self.btn_ai = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + gap
+        self.btn_undo = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + gap
+        self.btn_edit = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + section_gap
+
+        self.section_view_y = y
+        y += header_h + header_gap
+        self.btn_reasoning = pygame.Rect(self.panel_x, y, button_width, button_h)
+        y += button_h + section_gap
+
+        self.btn_settings = pygame.Rect(self.panel_x, y, button_width, button_h)
+
+        self.sections = [
+            ("操作", self.section_action_y),
+            ("视图", self.section_view_y),
+        ]
+
+        self._layout_settings()
+
+    def _layout_settings(self):
+        width = min(540, self.window_width - 80)
+        height = min(460, self.window_height - 80)
+        x = (self.window_width - width) // 2
+        y = (self.window_height - height) // 2
+        self.settings_rect = pygame.Rect(x, y, width, height)
+
+        row_h, row_gap = 40, 12
+        right_x = x + 30 + 130 + 12
+        right_w = width - (30 + 130 + 12) - 30
+        ry = y + 64
+        self.setting_model_btn = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_thinking_btn = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_timeout_field = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_depth_btn = pygame.Rect(right_x, ry, right_w, row_h)
+        ry += row_h + row_gap
+        self.setting_memory_btn = pygame.Rect(right_x, ry, right_w, row_h)
+
+        close_w = 110
+        self.settings_close_btn = pygame.Rect(
+            x + width - close_w - 30, y + height - 48, close_w, 34,
+        )
+
+    def _resize_window(self, width, height):
+        self._layout_window(width, height)
+
+    @staticmethod
+    def _load_font(size, bold=False):
+        candidates = [
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+        for path in candidates:
+            if os.path.exists(path):
+                try:
+                    return pygame.font.Font(path, size)
+                except Exception:
+                    continue
+        return pygame.font.SysFont(None, size)
+
+    # ------------------------------------------------------------------ #
+    # 坐标映射（交叉点）
+    # ------------------------------------------------------------------ #
+    def _rc_to_pixel(self, r, c):
+        return (self.margin + c * self.cell, self.margin + r * self.cell)
+
+    def _pixel_to_rc(self, x, y):
+        c = round((x - self.margin) / self.cell)
+        r = round((y - self.margin) / self.cell)
+        if 0 <= r < 10 and 0 <= c < 9:
+            px, py = self._rc_to_pixel(r, c)
+            if (px - x) ** 2 + (py - y) ** 2 <= (self.cell * 0.45) ** 2:
+                return r, c
+        return None
+
+    # ------------------------------------------------------------------ #
+    # 快照与回退
+    # ------------------------------------------------------------------ #
+    def _push_snapshot(self):
+        self.snapshots.append({
+            "fen": self.board.serialize(),
+            "current_player": self.current_player,
+            "last_from": self.last_from,
+            "last_to": self.last_to,
+            "last_move_str": self.last_move_str,
+            "history": list(self.history),
+            "move_actors": list(self.move_actors),
+            "game_over": self.game_over,
+            "game_result": self.game_result,
+        })
+
+    def _pop_snapshot(self):
+        if not self.snapshots:
+            return False
+        snapshot = self.snapshots.pop()
+        self.board.restore(snapshot["fen"])
+        self.current_player = snapshot["current_player"]
+        self.last_from = snapshot["last_from"]
+        self.last_to = snapshot["last_to"]
+        self.last_move_str = snapshot["last_move_str"]
+        self.history = snapshot["history"]
+        self.move_actors = snapshot["move_actors"]
+        self.game_over = snapshot["game_over"]
+        self.game_result = snapshot["game_result"]
+        self.selected_rc = None
+        self.legal_targets = []
+        self.engine_analysis = None
+        self.gpt_eval = None
+        return True
+
+    # ------------------------------------------------------------------ #
+    # 状态文字
+    # ------------------------------------------------------------------ #
+    def _is_check(self):
+        try:
+            return self.board.is_check()
+        except Exception:
+            return False
+
+    def _update_status(self):
+        if self.edit_mode:
+            status = "编辑模式（左键切换棋子，右键清空）"
+        elif self.game_over:
+            status = self.game_result or "对局结束"
+        elif self.ai_thinking:
+            status = "AI 思考中…"
+        elif self.analyzing:
+            status = "分析中…"
+        elif self.current_player == self.human_color:
+            status = "你的回合（点击棋子再点击目标点）"
+        else:
+            status = "AI 回合"
+        lines = [(status, self.big, self.TEXT)]
+
+        check_str = "是" if self._is_check() else "否"
+        lines.append((
+            f"轮到{'红方' if self.current_player == 1 else '黑方'} · "
+            f"将军 {check_str} · 内置搜索分析",
+            self.small, self.DIM,
+        ))
+        lines.append((
+            f"Token 消耗：{self.total_tokens:,}（提示 {self.prompt_tokens:,} / 补全 {self.completion_tokens:,}）",
+            self.small, self.DIM,
+        ))
+
+        if self.engine_analysis and self.engine_analysis.get("best_score_text") is not None:
+            lines.append((
+                f"形势：红方视角 {self.engine_analysis['best_score_text']}",
+                self.font, self.BLUE,
+            ))
+        else:
+            lines.append(("点击「分析局面」查看形势与 GPT 走法评估", self.small, self.DIM))
+
+        if self.gpt_eval:
+            evaluation = self.gpt_eval
+            if evaluation["in_candidates"]:
+                lines.append((
+                    f"GPT {evaluation['gpt_move']}｜最佳 {evaluation['best_move']}｜"
+                    f"损失 {evaluation['value_loss']:+.0f}｜{evaluation['quality']}",
+                    self.small,
+                    self.GREEN if evaluation["quality"] in ("好棋", "一般") else self.RED,
+                ))
+            else:
+                lines.append((
+                    f"GPT {evaluation['gpt_move']}｜最佳 {evaluation['best_move']}｜{evaluation['quality']}",
+                    self.small, self.RED,
+                ))
+
+        candidates = (self.engine_analysis or {}).get("candidates") or []
+        if candidates:
+            parts = []
+            for candidate in candidates[:4]:
+                parts.append(f"{candidate['move']} {candidate['score_text']}")
+            lines.append(("候选：" + " ｜ ".join(parts), self.small, self.TEXT))
+        self.status_lines = lines
+
+    # ------------------------------------------------------------------ #
+    # 绘制
+    # ------------------------------------------------------------------ #
+    def _draw(self):
+        self.screen.fill(self.BG)
+        self._draw_board()
+        self._draw_panel()
+        if self.settings_open:
+            self._draw_settings()
+        if self.timeout_popup_text:
+            self._draw_timeout_popup()
+        if self.confirm_text:
+            self._draw_confirm_popup()
+        if self.notice_text:
+            self._draw_notice_popup()
+        pygame.display.flip()
+
+    def _draw_board(self):
+        # 木质背景
+        board_rect = pygame.Rect(0, 0, self.board_pixel, self.board_height)
+        pygame.draw.rect(self.screen, self.BOARD_TOP, board_rect)
+        for y in range(self.board_height):
+            ratio = y / max(1, self.board_height - 1)
+            color = tuple(
+                int(self.BOARD_TOP[i] + (self.BOARD_BOTTOM[i] - self.BOARD_TOP[i]) * ratio)
+                for i in range(3)
+            )
+            pygame.draw.line(self.screen, color, (0, y), (self.board_pixel, y))
+
+        # 竖线（全高）
+        for c in range(9):
+            x = self.margin + c * self.cell
+            pygame.draw.line(
+                self.screen, self.LINE,
+                (x, self.margin), (x, self.margin + 9 * self.cell), 1,
+            )
+        # 横线：全部 10 行（完整网格，比仅顶底两线的传统样式更直观）
+        for r in range(10):
+            y = self.margin + r * self.cell
+            pygame.draw.line(
+                self.screen, self.LINE,
+                (self.margin, y), (self.margin + 8 * self.cell, y), 1,
+            )
+
+        # 九宫斜线
+        def px(r, c):
+            return self._rc_to_pixel(r, c)
+        pygame.draw.line(self.screen, self.LINE, px(0, 3), px(2, 5), 1)
+        pygame.draw.line(self.screen, self.LINE, px(0, 5), px(2, 3), 1)
+        pygame.draw.line(self.screen, self.LINE, px(7, 3), px(9, 5), 1)
+        pygame.draw.line(self.screen, self.LINE, px(7, 5), px(9, 3), 1)
+
+        # 楚河汉界
+        river_y = self.margin + 4.5 * self.cell
+        river = self.river_font.render("楚  河        汉  界", True, self.RIVER_TEXT)
+        self.screen.blit(
+            river,
+            (self.margin + 4 * self.cell - river.get_width() // 2,
+             river_y - river.get_height() // 2),
+        )
+
+        # 炮/兵位标记（小十字）
+        for r, c in ((2, 1), (2, 7), (7, 1), (7, 7),
+                     (3, 0), (3, 2), (3, 4), (3, 6), (3, 8),
+                     (6, 0), (6, 2), (6, 4), (6, 6), (6, 8)):
+            self._draw_point_marker(r, c)
+
+        # 走子高亮
+        for pos in (self.last_from, self.last_to):
+            if pos is not None:
+                self._draw_highlight(pos[0], pos[1], self.LAST_MOVE, 100)
+        if self.selected_rc is not None:
+            self._draw_highlight(*self.selected_rc, self.SELECT, 150)
+
+        # 合法目标
+        radius = max(4, int(self.cell * 0.14))
+        for r, c in self.legal_targets:
+            point = self._rc_to_pixel(r, c)
+            if self.board.grid[r][c] is None:
+                pygame.draw.circle(self.screen, (90, 90, 90), point, radius)
+            else:
+                pygame.draw.circle(self.screen, self.GREEN, point, radius + 5, 3)
+
+        # 将军高亮
+        if self._is_check() and not self.game_over:
+            king = self.board.find_king(self.current_player)
+            if king is not None:
+                point = self._rc_to_pixel(*king)
+                pygame.draw.circle(self.screen, self.CHECK, point, int(self.cell * 0.44) + 4, 3)
+
+        # 棋子
+        for r in range(10):
+            for c in range(9):
+                piece = self.board.grid[r][c]
+                if piece is None:
+                    continue
+                self._draw_piece(r, c, piece)
+
+        self._draw_coordinates()
+
+        if self.edit_mode:
+            pygame.draw.rect(
+                self.screen, self.GOLD,
+                (0, 0, self.board_pixel, self.board_height),
+                3, border_radius=6,
+            )
+
+    def _draw_point_marker(self, r, c):
+        x, y = self._rc_to_pixel(r, c)
+        d = max(3, int(self.cell * 0.12))
+        s = max(3, int(self.cell * 0.09))
+        for sx in (-d, d):
+            for sy in (-d, d):
+                pygame.draw.line(self.screen, self.LINE, (x + sx, y + sy), (x + sx, y + sy + s), 1)
+                pygame.draw.line(self.screen, self.LINE, (x + sx, y + sy), (x + sx + s, y + sy), 1)
+
+    def _draw_highlight(self, r, c, color, alpha):
+        point = self._rc_to_pixel(r, c)
+        radius = max(8, int(self.cell * 0.42))
+        overlay = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
+        pygame.draw.circle(overlay, (*color, alpha), (radius, radius), radius)
+        self.screen.blit(overlay, (point[0] - radius, point[1] - radius))
+
+    def _draw_piece(self, r, c, piece):
+        color, ptype = piece
+        char = PIECE_CHARS[color][ptype]
+        point = self._rc_to_pixel(r, c)
+        radius = max(8, int(self.cell * 0.42))
+        pygame.draw.circle(self.screen, self.PIECE_EDGE, (point[0] + 1, point[1] + 2), radius)
+        pygame.draw.circle(self.screen, self.PIECE_FILL, point, radius)
+        pygame.draw.circle(self.screen, self.PIECE_EDGE, point, radius, 1)
+        text_color = self.RED_TEXT if color == RED else self.BLACK_TEXT
+        surface = self.piece_font.render(char, True, text_color)
+        self.screen.blit(
+            surface,
+            (point[0] - surface.get_width() // 2,
+             point[1] - surface.get_height() // 2),
+        )
+
+    def _draw_coordinates(self):
+        label_color = (124, 88, 46)
+        for c in range(9):
+            label = self.small.render(chr(ord("a") + c), True, label_color)
+            x = self.margin + c * self.cell
+            self.screen.blit(label, (x - label.get_width() // 2, self.board_height + 4))
+        for r in range(10):
+            label = self.small.render(str(r), True, label_color)
+            y = self.margin + r * self.cell
+            self.screen.blit(label, (self.margin - 20, y - label.get_height() // 2))
+
+    def _draw_panel(self):
+        mouse = pygame.mouse.get_pos()
+        panel_x = self.panel_x
+
+        pygame.draw.rect(
+            self.screen, self.PANEL_BG,
+            (self.board_pixel, 0, self.panel_gap, self.window_height),
+        )
+        pygame.draw.rect(
+            self.screen, self.PANEL_BG,
+            (panel_x, 0, self.panel_width, self.window_height),
+        )
+
+        title = self.big.render("GPT 中国象棋", True, self.TEXT)
+        subtitle = self.small.render("DeepSeek 选点 · 内置搜索分析", True, self.DIM)
+        self.screen.blit(title, (panel_x + 16, 16))
+        self.screen.blit(subtitle, (panel_x + 16, 44))
+
+        card_top = 68
+        card_bottom = self.section_action_y - 8
+        self._draw_card(panel_x + 8, card_top, self.panel_width - 16, max(12, card_bottom - card_top))
+        y = card_top + 10
+        overflow = False
+        for text, font, color in self.status_lines:
+            for piece in self._wrap_text(text, font, self.panel_width - 36):
+                if y + font.get_height() > card_bottom - 8:
+                    overflow = True
+                    break
+                self.screen.blit(font.render(piece, True, color), (panel_x + 20, y))
+                y += font.get_height() + 4
+            if overflow:
+                break
+
+        if self.ai_thinking and self.thinking_start is not None:
+            elapsed = max(0.0, time.monotonic() - self.thinking_start)
+            countdown = self.font.render(f"已思考 {elapsed:.1f}s", True, self.GOLD)
+            if y + countdown.get_height() <= card_bottom - 8:
+                self.screen.blit(countdown, (panel_x + 20, y))
+
+        for label, section_y in self.sections:
+            self._draw_section_header(section_y, label)
+
+        # 操作
+        if self.analyzing:
+            analyze_color, analyze_label = self.BTN_ACTIVE, "分析中…"
+        elif self.edit_mode or self.ai_thinking:
+            analyze_color, analyze_label = self.BTN_DISABLED, "分析局面"
+        else:
+            analyze_color = self._btn_color(self.btn_analyze, mouse, self.GOLD, self.BTN_ACTIVE_HOVER)
+            analyze_label = "分析局面"
+        self._draw_button(self.btn_analyze, analyze_color, analyze_label)
+
+        can_ai = (not self.ai_thinking and not self.edit_mode and not self.analyzing
+                   and not self.game_over and self.current_player == self.ai_color)
+        ai_color = (
+            self._btn_color(self.btn_ai, mouse, self.GREEN, (90, 204, 154))
+            if can_ai else self.BTN_DISABLED
+        )
+        self._draw_button(self.btn_ai, ai_color, "AI 走棋")
+
+        can_undo = bool(self.snapshots) and not self.ai_thinking and not self.edit_mode and not self.analyzing
+        undo_color = (
+            self._btn_color(self.btn_undo, mouse, self.BTN, self.BTN_HOVER)
+            if can_undo else self.BTN_DISABLED
+        )
+        self._draw_button(self.btn_undo, undo_color, "回退")
+
+        if self.edit_mode:
+            edit_toggle_color = (
+                self.BTN_DANGER_HOVER if self.btn_edit.collidepoint(mouse)
+                else self.BTN_DANGER
+            )
+            edit_label = "退出编辑"
+        else:
+            edit_toggle_color = (
+                self._btn_color(self.btn_edit, mouse, self.BTN, self.BTN_HOVER)
+                if not self.ai_thinking else self.BTN_DISABLED
+            )
+            edit_label = "编辑棋盘"
+        self._draw_button(self.btn_edit, edit_toggle_color, edit_label)
+
+        # 视图
+        reasoning_label = "思考链：开启" if self.reasoning_window else "思考链：关闭"
+        self._draw_button(
+            self.btn_reasoning,
+            self._btn_color(self.btn_reasoning, mouse, self.BTN, self.BTN_HOVER),
+            reasoning_label,
+        )
+
+        # 设置
+        self._draw_button(
+            self.btn_settings,
+            self._btn_color(self.btn_settings, mouse, self.BTN, self.BTN_HOVER),
+            "设置",
+        )
+
+    def _draw_section_header(self, y, label):
+        x = self.panel_x + 16
+        surface = self.small.render(label, True, self.MUTED)
+        self.screen.blit(surface, (x, y))
+        line_y = y + surface.get_height() // 2
+        pygame.draw.line(
+            self.screen, self.PANEL_BG_2,
+            (x + surface.get_width() + 8, line_y),
+            (self.panel_x + self.panel_width - 16, line_y),
+        )
+
+    def _btn_color(self, rect, mouse, base, hover):
+        return hover if rect.collidepoint(mouse) else base
+
+    @staticmethod
+    def _wrap_text(text, font, max_width):
+        if font.size(text)[0] <= max_width:
+            return [text]
+        lines = []
+        current = ""
+        for char in text:
+            if current and font.size(current + char)[0] > max_width:
+                lines.append(current)
+                current = char
+            else:
+                current += char
+        if current:
+            lines.append(current)
+        return lines
+
+    def _draw_card(self, x, y, w, h):
+        rect = pygame.Rect(x, y, w, h)
+        pygame.draw.rect(self.screen, self.CARD_BG, rect, border_radius=10)
+        pygame.draw.rect(self.screen, self.PANEL_BG_2, rect, 1, border_radius=10)
+
+    def _draw_button(self, rect, color, label):
+        pygame.draw.rect(self.screen, (16, 19, 28), rect.move(0, 2), border_radius=8)
+        pygame.draw.rect(self.screen, color, rect, border_radius=8)
+        top_highlight = tuple(min(255, channel + 26) for channel in color)
+        pygame.draw.line(
+            self.screen, top_highlight,
+            (rect.x + 8, rect.y + 1), (rect.right - 8, rect.y + 1),
+        )
+        text = self.font.render(label, True, (255, 255, 255))
+        self.screen.blit(
+            text,
+            (rect.x + (rect.w - text.get_width()) // 2,
+             rect.centery - text.get_height() // 2),
+        )
+
+    def _draw_settings(self):
+        overlay = pygame.Surface((self.window_width, self.window_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        self.screen.blit(overlay, (0, 0))
+
+        rect = self.settings_rect
+        pygame.draw.rect(self.screen, (38, 44, 60), rect, border_radius=12)
+        pygame.draw.rect(self.screen, self.PANEL_BG_2, rect, 1, border_radius=12)
+
+        title = self.big.render("设置", True, self.TEXT)
+        self.screen.blit(title, (rect.x + 30, rect.y + 22))
+
+        mouse = pygame.mouse.get_pos()
+        self._draw_setting_row("AI 模型", self.setting_model_btn, self.selected_model, mouse)
+        thinking_labels = {"disabled": "关闭", "low": "低", "high": "高", "max": "最大"}
+        self._draw_setting_row(
+            "思考深度", self.setting_thinking_btn,
+            thinking_labels[self.selected_thinking], mouse,
+        )
+
+        label = self.font.render("最长思考（秒）", True, self.DIM)
+        self.screen.blit(
+            label,
+            (rect.x + 30, self.setting_timeout_field.centery - label.get_height() // 2),
+        )
+        self._draw_settings_input(self.setting_timeout_field)
+
+        self._draw_setting_row(
+            "搜索深度", self.setting_depth_btn, f"{self.selected_depth} 层", mouse,
+        )
+        self._draw_setting_row(
+            "跨手记忆", self.setting_memory_btn,
+            "开" if self.memory_enabled else "关", mouse,
+        )
+
+        close_color = (
+            self.BTN_HOVER if self.settings_close_btn.collidepoint(mouse) else self.BTN
+        )
+        self._draw_button(self.settings_close_btn, close_color, "完成")
+
+    def _draw_setting_row(self, label, btn, value, mouse):
+        x = self.settings_rect.x + 30
+        surface = self.font.render(label, True, self.DIM)
+        self.screen.blit(surface, (x, btn.centery - surface.get_height() // 2))
+        color = self.BTN_HOVER if btn.collidepoint(mouse) else self.BTN
+        self._draw_button(btn, color, f"{value}（点击切换）")
+
+    def _draw_settings_input(self, field):
+        active = self.thinking_timeout_active
+        pygame.draw.rect(self.screen, (16, 19, 28), field.move(0, 2), border_radius=8)
+        pygame.draw.rect(self.screen, (50, 57, 75), field, border_radius=8)
+        border = self.GOLD if active else self.PANEL_BG_2
+        pygame.draw.rect(self.screen, border, field, 1, border_radius=8)
+
+        if active and self.timeout_edit_text is not None:
+            value = self.timeout_edit_text
+        else:
+            value = self.thinking_timeout_text
+        label = self.font.render(value or "输入秒数", True, self.TEXT)
+        self.screen.blit(label, (field.x + 12, field.centery - label.get_height() // 2))
+        if active and (pygame.time.get_ticks() // 500) % 2 == 0:
+            cursor_x = field.x + 12 + label.get_width()
+            pygame.draw.line(
+                self.screen, self.TEXT,
+                (cursor_x, field.y + 8), (cursor_x, field.bottom - 8), 2,
+            )
+
+    def _draw_timeout_popup(self):
+        popup_width = min(520, self.window_width - 80)
+        popup_height = 190
+        popup = pygame.Rect(
+            (self.window_width - popup_width) // 2,
+            (self.window_height - popup_height) // 2,
+            popup_width,
+            popup_height,
+        )
+        overlay = pygame.Surface((self.window_width, self.window_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 105))
+        self.screen.blit(overlay, (0, 0))
+        pygame.draw.rect(self.screen, (42, 47, 58), popup, border_radius=8)
+        pygame.draw.rect(self.screen, self.GOLD, popup, 2, border_radius=8)
+
+        title = self.font.render("AI 思考超时", True, self.PIECE_FILL)
+        self.screen.blit(title, (popup.x + 24, popup.y + 20))
+        message = self.small.render(self.timeout_popup_text, True, (225, 228, 235))
+        self.screen.blit(message, (popup.x + 24, popup.y + 62))
+
+        self.timeout_popup_button = pygame.Rect(
+            popup.right - 118,
+            popup.bottom - 48,
+            94,
+            32,
+        )
+        mouse = pygame.mouse.get_pos()
+        color = (
+            self.BTN_HOVER
+            if self.timeout_popup_button.collidepoint(mouse)
+            else self.BTN
+        )
+        self._draw_button(self.timeout_popup_button, color, "知道了")
+
+    def _draw_confirm_popup(self):
+        width = min(460, self.window_width - 80)
+        height = 160
+        box = pygame.Rect(
+            (self.window_width - width) // 2,
+            (self.window_height - height) // 2,
+            width,
+            height,
+        )
+        overlay = pygame.Surface((self.window_width, self.window_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 140))
+        self.screen.blit(overlay, (0, 0))
+        pygame.draw.rect(self.screen, (42, 47, 58), box, border_radius=10)
+        pygame.draw.rect(self.screen, self.GOLD, box, 2, border_radius=10)
+
+        message = self.font.render(self.confirm_text, True, self.TEXT)
+        self.screen.blit(message, (box.x + 24, box.y + 28))
+
+        self.confirm_ok_btn = pygame.Rect(box.right - 210, box.bottom - 54, 90, 34)
+        self.confirm_cancel_btn = pygame.Rect(box.right - 110, box.bottom - 54, 90, 34)
+        mouse = pygame.mouse.get_pos()
+        ok_color = (
+            self.BTN_DANGER_HOVER if self.confirm_ok_btn.collidepoint(mouse)
+            else self.BTN_DANGER
+        )
+        cancel_color = (
+            self.BTN_HOVER if self.confirm_cancel_btn.collidepoint(mouse)
+            else self.BTN
+        )
+        self._draw_button(self.confirm_ok_btn, ok_color, "确定")
+        self._draw_button(self.confirm_cancel_btn, cancel_color, "取消")
+
+    def _draw_notice_popup(self):
+        width = min(520, self.window_width - 80)
+        height = 170
+        box = pygame.Rect(
+            (self.window_width - width) // 2,
+            (self.window_height - height) // 2,
+            width,
+            height,
+        )
+        overlay = pygame.Surface((self.window_width, self.window_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        self.screen.blit(overlay, (0, 0))
+        pygame.draw.rect(self.screen, (42, 47, 58), box, border_radius=10)
+        pygame.draw.rect(self.screen, self.BLUE, box, 2, border_radius=10)
+
+        title = self.font.render("提示", True, self.PIECE_FILL)
+        self.screen.blit(title, (box.x + 24, box.y + 20))
+        y = box.y + 56
+        for line in self._wrap_text(self.notice_text, self.small, width - 48):
+            if y > box.bottom - 60:
+                break
+            self.screen.blit(self.small.render(line, True, (225, 228, 235)), (box.x + 24, y))
+            y += self.small.get_height() + 4
+
+        self.notice_button = pygame.Rect(box.right - 118, box.bottom - 48, 94, 32)
+        mouse = pygame.mouse.get_pos()
+        color = self.BTN_HOVER if self.notice_button.collidepoint(mouse) else self.BTN
+        self._draw_button(self.notice_button, color, "知道了")
+
+    # ------------------------------------------------------------------ #
+    # 思考链窗口
+    # ------------------------------------------------------------------ #
+    def _render_reasoning_window(self):
+        if self.reasoning_window is None or self.reasoning_renderer is None:
+            return
+        width, height = self.reasoning_window.size
+        surface = pygame.Surface((width, height))
+        surface.fill((35, 38, 45))
+        title = self.font.render("DeepSeek 思考链（流式）", True, self.PIECE_FILL)
+        surface.blit(title, (16, 14))
+
+        content_width = width - 32
+        lines = []
+        for paragraph in self.reasoning_text.splitlines() or [""]:
+            current = ""
+            for char in paragraph:
+                if current and self.small.size(current + char)[0] > content_width:
+                    lines.append(current)
+                    current = ""
+                current += char
+            lines.append(current)
+        line_height = self.small.get_height() + 4
+        max_lines = max(1, (height - 62) // line_height)
+        visible_lines = lines[-max_lines:]
+        y = 54
+        for line in visible_lines:
+            surface.blit(self.small.render(line, True, (225, 228, 235)), (16, y))
+            y += line_height
+        texture = video.Texture.from_surface(self.reasoning_renderer, surface)
+        self.reasoning_renderer.draw_color = (35, 38, 45, 255)
+        self.reasoning_renderer.clear()
+        self.reasoning_renderer.blit(texture)
+        self.reasoning_renderer.present()
+
+    def _open_reasoning_window(self):
+        if self.reasoning_window is None:
+            window_size = (560, 360)
+            self.reasoning_window = video.Window(
+                "DeepSeek 思考链",
+                size=window_size,
+                resizable=True,
+            )
+            self.reasoning_renderer = video.Renderer(self.reasoning_window)
+            desktop_sizes = pygame.display.get_desktop_sizes()
+            if desktop_sizes:
+                desktop_width, desktop_height = desktop_sizes[0]
+                right_margin = 24
+                bottom_margin = 48
+                self.reasoning_window.position = (
+                    max(0, desktop_width - window_size[0] - right_margin),
+                    max(0, desktop_height - window_size[1] - bottom_margin),
+                )
+        self.reasoning_window.show()
+        self.reasoning_window.focus()
+        self._render_reasoning_window()
+
+    def _close_reasoning_window(self):
+        if self.reasoning_window is not None:
+            self.reasoning_window.destroy()
+        self.reasoning_window = None
+        self.reasoning_renderer = None
+
+    # ------------------------------------------------------------------ #
+    # 交互
+    # ------------------------------------------------------------------ #
+    def _handle_click(self, pos, button):
+        if self.notice_text:
+            if button == 1 and hasattr(self, "notice_button") and self.notice_button.collidepoint(pos):
+                self.notice_text = None
+            return
+        if self.confirm_text:
+            if button == 1:
+                if self.confirm_ok_btn.collidepoint(pos):
+                    action = self.confirm_action
+                    self.confirm_text = None
+                    self.confirm_action = None
+                    if action:
+                        action()
+                elif self.confirm_cancel_btn.collidepoint(pos):
+                    self.confirm_text = None
+                    self.confirm_action = None
+            return
+        if self.timeout_popup_text:
+            if (button == 1
+                    and hasattr(self, "timeout_popup_button")
+                    and self.timeout_popup_button.collidepoint(pos)):
+                self.timeout_popup_text = None
+            return
+        if self.settings_open:
+            self._handle_settings_click(pos, button)
+            return
+        if button == 1:
+            if self.btn_settings.collidepoint(pos):
+                self._open_settings()
+                return
+            if self.btn_reasoning.collidepoint(pos):
+                if self.reasoning_window:
+                    self._close_reasoning_window()
+                else:
+                    self._open_reasoning_window()
+                return
+            if self.btn_analyze.collidepoint(pos):
+                if not self.analyzing and not self.ai_thinking and not self.edit_mode:
+                    self._start_analysis()
+                return
+            if self.btn_undo.collidepoint(pos):
+                if self.snapshots and not self.ai_thinking and not self.edit_mode and not self.analyzing:
+                    self._undo()
+                return
+            if self.btn_edit.collidepoint(pos):
+                if self.ai_thinking:
+                    return
+                self._exit_edit_mode() if self.edit_mode else self._enter_edit_mode()
+                return
+            if self.btn_ai.collidepoint(pos):
+                if (not self.ai_thinking and not self.edit_mode and not self.analyzing
+                        and not self.game_over and self.current_player == self.ai_color):
+                    self._start_ai_turn()
+                return
+
+        if self.edit_mode:
+            self._handle_edit_click(pos, button)
+            return
+        if self.game_over or self.ai_thinking or self.analyzing or self.current_player != self.human_color:
+            return
+        if pos[0] >= self.board_pixel or pos[1] >= self.board_height:
+            return
+        if button == 1:
+            self._handle_board_click(pos)
+        elif button == 3:
+            self.selected_rc = None
+            self.legal_targets = []
+
+    def _handle_board_click(self, pos):
+        rc = self._pixel_to_rc(*pos)
+        if rc is None:
+            return
+        r, c = rc
+        piece = self.board.grid[r][c]
+        human_is_red = self.human_color == 1
+        if self.selected_rc is None:
+            if piece is not None and (piece[0] == RED) == human_is_red:
+                self.selected_rc = (r, c)
+                self.legal_targets = self._targets_for(r, c)
+            return
+        if rc == self.selected_rc:
+            self.selected_rc = None
+            self.legal_targets = []
+            return
+        if rc in self.legal_targets:
+            self._try_play(self.selected_rc, rc)
+            return
+        if piece is not None and (piece[0] == RED) == human_is_red:
+            self.selected_rc = (r, c)
+            self.legal_targets = self._targets_for(r, c)
+        else:
+            self.selected_rc = None
+            self.legal_targets = []
+
+    def _targets_for(self, r, c):
+        targets = set()
+        for fr, fc, tr, tc in self.board.legal_moves_raw(self.current_player):
+            if (fr, fc) == (r, c):
+                targets.add((tr, tc))
+        return targets
+
+    def _try_play(self, from_rc, to_rc):
+        fr, fc = from_rc
+        tr, tc = to_rc
+        move = self.board.move_notation(fr, fc, tr, tc)
+        self.selected_rc = None
+        self.legal_targets = []
+        if not self.board.is_legal(move):
+            return
+        self._apply_move(move, actor="human")
+
+    def _apply_move(self, move, actor):
+        if move.lower() == "resign":
+            self._push_snapshot()
+            player = self.current_player
+            resign_name = "红方" if player == 1 else "黑方"
+            winner = "黑方" if player == 1 else "红方"
+            self.history.append(f"{resign_name} 认输")
+            self.move_actors.append(actor)
+            self.game_over = True
+            self.game_result = f"{winner}胜（{resign_name}认输）"
+            self.engine_analysis = None
+            self.gpt_eval = None
+            self.ai_error_retries = 0
+            self._update_status()
+            return True
+        self._push_snapshot()
+        player = self.current_player
+        try:
+            detail = self.board.play(move)
+        except ValueError:
+            self.snapshots.pop()
+            return False
+        self.last_from = detail["from"]
+        self.last_to = detail["to"]
+        self.last_move_str = detail["move"]
+        color_name = "红方" if player == 1 else "黑方"
+        self.history.append(f"{color_name} {detail['move']}")
+        self.move_actors.append(actor)
+        self.current_player = 3 - player
+        self.engine_analysis = None
+        self.gpt_eval = None
+        self.ai_error_retries = 0
+        if self.board.is_game_over():
+            self.game_over = True
+            self.game_result = self.board.outcome_text() or "对局结束"
+        self._update_status()
+        if not self.game_over and self.current_player == self.ai_color:
+            self._start_ai_turn()
+        return True
+
+    def _undo(self):
+        if not self.edit_mode and self._pop_snapshot():
+            self._update_status()
+
+    # ------------------------------------------------------------------ #
+    # 编辑模式
+    # ------------------------------------------------------------------ #
+    def _handle_edit_click(self, pos, button):
+        rc = self._pixel_to_rc(*pos)
+        if rc is None:
+            return
+        r, c = rc
+        if button == 1:
+            self._cycle_piece(r, c)
+        elif button == 3:
+            self.board.grid[r][c] = None
+        self.engine_analysis = None
+        self.gpt_eval = None
+        self._update_status()
+
+    def _cycle_piece(self, r, c):
+        piece = self.board.grid[r][c]
+        if piece is None:
+            self.board.grid[r][c] = (RED, KING)
+            return
+        color, ptype = piece
+        if color == RED:
+            if ptype < PAWN:
+                self.board.grid[r][c] = (RED, ptype + 1)
+            else:
+                self.board.grid[r][c] = (BLACK, KING)
+        else:
+            if ptype < PAWN:
+                self.board.grid[r][c] = (BLACK, ptype + 1)
+            else:
+                self.board.grid[r][c] = None
+
+    def _enter_edit_mode(self):
+        if self.edit_mode:
+            return
+        self._push_snapshot()
+        self.edit_mode = True
+        self.selected_rc = None
+        self.legal_targets = []
+        self.history = []
+        self.move_actors = []
+        self.last_from = None
+        self.last_to = None
+        self.last_move_str = None
+        self.game_over = False
+        self.game_result = None
+        self.engine_analysis = None
+        self.gpt_eval = None
+        self._update_status()
+
+    def _exit_edit_mode(self):
+        if not self.edit_mode:
+            return
+        self.edit_mode = False
+        self.engine_analysis = None
+        self.gpt_eval = None
+        self._update_status()
+        if not self.game_over and self.current_player == self.ai_color:
+            self._start_ai_turn()
+
+    # ------------------------------------------------------------------ #
+    # 设置交互
+    # ------------------------------------------------------------------ #
+    def _handle_settings_click(self, pos, button):
+        if button != 1:
+            return
+        if self.setting_timeout_field.collidepoint(pos):
+            if not self.thinking_timeout_active:
+                self.thinking_timeout_active = True
+                self.timeout_edit_text = ""
+                pygame.key.start_text_input()
+            return
+        if self.thinking_timeout_active:
+            self._finish_timeout_edit()
+        if self.settings_close_btn.collidepoint(pos):
+            self._close_settings()
+            return
+        if self.setting_model_btn.collidepoint(pos):
+            self._cycle_model()
+            return
+        if self.setting_thinking_btn.collidepoint(pos):
+            self._cycle_thinking()
+            return
+        if self.setting_depth_btn.collidepoint(pos):
+            self._cycle_depth()
+            return
+        if self.setting_memory_btn.collidepoint(pos):
+            self.memory_enabled = not self.memory_enabled
+            return
+
+    def _open_settings(self):
+        self.settings_open = True
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        pygame.key.stop_text_input()
+
+    def _close_settings(self):
+        self.settings_open = False
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        pygame.key.stop_text_input()
+
+    def _cycle_model(self):
+        current = self.model_options.index(self.selected_model)
+        self.selected_model = self.model_options[(current + 1) % len(self.model_options)]
+
+    def _cycle_thinking(self):
+        current = self.thinking_options.index(self.selected_thinking)
+        self.selected_thinking = self.thinking_options[(current + 1) % len(self.thinking_options)]
+
+    def _cycle_depth(self):
+        current = self.depth_options.index(self.selected_depth)
+        self.selected_depth = self.depth_options[(current + 1) % len(self.depth_options)]
+
+    def _handle_keydown(self, event):
+        if event.key == pygame.K_ESCAPE:
+            if self.thinking_timeout_active:
+                self._cancel_timeout_edit()
+            elif self.settings_open:
+                self._close_settings()
+            elif self.selected_rc is not None:
+                self.selected_rc = None
+                self.legal_targets = []
+            return
+        if not self.thinking_timeout_active:
+            return
+        if event.key == pygame.K_RETURN:
+            self._finish_timeout_edit()
+        elif event.key == pygame.K_BACKSPACE:
+            self.timeout_edit_text = (self.timeout_edit_text or "")[:-1]
+
+    def _finish_timeout_edit(self):
+        if self.thinking_timeout_active and (self.timeout_edit_text or "").strip():
+            self.thinking_timeout_text = self.timeout_edit_text.strip()
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        pygame.key.stop_text_input()
+
+    def _cancel_timeout_edit(self):
+        self.thinking_timeout_active = False
+        self.timeout_edit_text = None
+        pygame.key.stop_text_input()
+
+    def _handle_text_input(self, text):
+        for char in text:
+            self._append_timeout_text(char)
+
+    def _append_timeout_text(self, char):
+        if not self.thinking_timeout_active or char not in "0123456789.":
+            return
+        current = self.timeout_edit_text or ""
+        if char != "." or "." not in current:
+            self.timeout_edit_text = current + char
+
+    def _get_thinking_timeout(self):
+        try:
+            value = float(self.thinking_timeout_text)
+        except ValueError:
+            return 30.0
+        return value if value > 0 else 30.0
+
+    # ------------------------------------------------------------------ #
+    # 后台任务
+    # ------------------------------------------------------------------ #
+    def _start_ai_turn(self):
+        if self.ai_thinking:
+            return
+        self.ai_thinking = True
+        self._update_status()
+        board = self.board
+        player = self.current_player
+        last_move = self.last_move_str
+        history = list(self.history)
+        client = self.client
+        model = self.selected_model
+        thinking_effort = self.selected_thinking
+        max_thinking_seconds = self._get_thinking_timeout()
+        self.thinking_start = time.monotonic()
+        self.reasoning_text = ""
+        self.timeout_popup_text = None
+        if self.reasoning_window:
+            self._render_reasoning_window()
+        prev_reasoning = self.last_ai_reasoning if self.memory_enabled else ""
+
+        def worker():
+            try:
+                def on_reasoning(text):
+                    self.queue.put(("reasoning_delta", text))
+
+                def on_usage(usage):
+                    self.queue.put(("usage", usage))
+
+                def on_illegal(parsed_move, raw_content, attempt):
+                    self.queue.put(("illegal_move", parsed_move, raw_content, attempt))
+
+                def on_timeout():
+                    self.queue.put(("thinking_timeout", max_thinking_seconds))
+
+                move = ask_model_for_move(
+                    client,
+                    board,
+                    player,
+                    last_move,
+                    history,
+                    model=model,
+                    thinking_effort=thinking_effort,
+                    return_reasoning=True,
+                    on_reasoning=on_reasoning,
+                    on_usage=on_usage,
+                    previous_reasoning=prev_reasoning or None,
+                    on_illegal=on_illegal,
+                    max_thinking_seconds=max_thinking_seconds,
+                    on_timeout=on_timeout,
+                )
+                self.queue.put(("ai_done", move[0], move[1]))
+            except Exception as error:
+                self.queue.put(("err", str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _start_analysis(self):
+        self.analyzing = True
+        self._update_status()
+        fen = self.board.serialize()
+        player = self.current_player
+        last_actor = self.move_actors[-1] if self.move_actors else None
+        last_move = self.last_move_str
+        analyzer = self.analyzer
+        depth = self.selected_depth
+
+        def worker():
+            try:
+                analyzer.set_position(fen)
+                analysis = analyzer.analyze(depth=depth)
+                evaluation = None
+                if last_actor == "ai" and last_move:
+                    evaluation = evaluate_gpt_move(analysis, last_move)
+                self.queue.put(("analysis_done", analysis, evaluation))
+            except Exception as error:
+                self.queue.put(("analysis_err", str(error)))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ------------------------------------------------------------------ #
+    # 主循环
+    # ------------------------------------------------------------------ #
+    def run(self):
+        clock = pygame.time.Clock()
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    self._handle_click(event.pos, event.button)
+                elif event.type == pygame.KEYDOWN:
+                    self._handle_keydown(event)
+                elif event.type == pygame.TEXTINPUT:
+                    self._handle_text_input(event.text)
+                elif event.type == pygame.WINDOWCLOSE:
+                    window_event = getattr(event, "window", None)
+                    window_id = getattr(window_event, "windowID", None)
+                    if self.reasoning_window and (
+                            window_id is None or window_id == self.reasoning_window.id):
+                        self._close_reasoning_window()
+                elif event.type in (
+                        pygame.WINDOWMAXIMIZED,
+                        pygame.WINDOWRESTORED,
+                        pygame.WINDOWSIZECHANGED,
+                ):
+                    window_event = getattr(event, "window", None)
+                    window_id = getattr(window_event, "windowID", None)
+                    if self.reasoning_window and window_id == self.reasoning_window.id:
+                        self._render_reasoning_window()
+                    else:
+                        width, height = pygame.display.get_window_size()
+                        self._resize_window(width, height)
+            try:
+                message = self.queue.get_nowait()
+                kind = message[0]
+                if kind == "ai_done":
+                    self.ai_thinking = False
+                    self.thinking_start = None
+                    move = message[1] or ""
+                    self.reasoning_text = message[2] or "模型没有返回思考内容。"
+                    self.last_ai_reasoning = message[2] or ""
+                    applied = False
+                    if move.lower() == "resign":
+                        applied = self._apply_move("resign", actor="ai")
+                    elif self.board.is_legal(move):
+                        applied = self._apply_move(move, actor="ai")
+                    if not applied:
+                        legal = self.board.legal_moves()
+                        fallback = legal[0] if legal else "resign"
+                        if fallback != move:
+                            self.notice_text = (
+                                f"GPT 返回的着法「{move or '空'}」无效，已改走「{fallback}」。"
+                            )
+                        self._apply_move(fallback, actor="ai")
+                    # 自愈：若 AI 回合结束后仍轮到 AI 且未走子，则重新触发
+                    if (not self.game_over and not self.ai_thinking
+                            and self.current_player == self.ai_color):
+                        self._start_ai_turn()
+                elif kind == "reasoning_delta":
+                    self.reasoning_text += message[1]
+                    self._render_reasoning_window()
+                elif kind == "usage":
+                    usage = message[1] or {}
+                    self.prompt_tokens += usage.get("prompt_tokens", 0)
+                    self.completion_tokens += usage.get("completion_tokens", 0)
+                    self.total_tokens += usage.get("total_tokens", 0)
+                    self._update_status()
+                elif kind == "illegal_move":
+                    parsed, attempt = message[1], message[3]
+                    if parsed:
+                        self.notice_text = f"GPT 第 {attempt} 次请求了非法着法「{parsed}」，已重新提交会话。"
+                    else:
+                        self.notice_text = f"GPT 第 {attempt} 次输出了无法解析的内容，已重新提交会话。"
+                elif kind == "thinking_timeout":
+                    self.timeout_popup_text = (
+                        f"AI 思考已超时（{message[1]:g}s），正在使用遗产快速决策…"
+                    )
+                elif kind == "analysis_done":
+                    self.analyzing = False
+                    self.engine_analysis = message[1]
+                    self.gpt_eval = message[2]
+                    self._update_status()
+                elif kind == "analysis_err":
+                    self.analyzing = False
+                    self.status_lines = [(f"分析失败: {message[1]}", self.font, self.RED)]
+                elif kind == "err":
+                    self.ai_thinking = False
+                    self.thinking_start = None
+                    if self.ai_error_retries < 2 and not self.game_over:
+                        self.ai_error_retries += 1
+                        self.status_lines = [(
+                            f"AI 调用失败，正在自动重试（第 {self.ai_error_retries} 次）…",
+                            self.font,
+                            self.GOLD,
+                        )]
+                        self._start_ai_turn()
+                    else:
+                        self.ai_error_retries = 0
+                        self.status_lines = [(
+                            f"AI 调用失败，请点击「AI 走棋」重试: {message[1]}",
+                            self.font,
+                            self.RED,
+                        )]
+            except queue.Empty:
+                pass
+            self._draw()
+            clock.tick(30)
+        self._close_reasoning_window()
+        pygame.quit()
