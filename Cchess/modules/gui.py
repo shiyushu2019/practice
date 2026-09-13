@@ -101,7 +101,7 @@ class CchessGUI:
         self.thinking_options = THINKING_OPTIONS
         self.depth_options = DEPTH_OPTIONS
         self.selected_model = MODEL if MODEL in self.model_options else self.model_options[0]
-        self.selected_thinking = "low"
+        self.selected_thinking = "high"
         self.selected_depth = 2 if 2 in self.depth_options else self.depth_options[0]
         self.thinking_timeout_text = "30"
         self.thinking_timeout_active = False
