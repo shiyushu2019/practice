@@ -2,25 +2,28 @@
 #include<iostream>
 #include <stdexcept>
 
+#define DataType double
+
 class Tensor {
     private:
-        std::vector<int> data_;
+        std::vector<DataType> data_;
         std::vector<size_t> shape_;
     public:
 
-        Tensor(std::vector<int> data,std::vector<size_t> shape)
-            : data_(std::move(data)), shape_(std::move(shape)) {}
-        Tensor(std::vector<int> data)
+        Tensor(std::vector<DataType> data,std::vector<size_t> shape)
+            : data_(std::move(data)), shape_(std::move(shape)) {
+                size_t total = 1;
+                for (auto d : shape_) total *= d;
+                if (total != data_.size())
+                    throw std::invalid_argument("shape does not match data size");
+            }
+        explicit Tensor(std::vector<DataType> data)
             : data_(std::move(data)), shape_(std::vector<size_t>{data_.size()}) {}
 
-        std::vector<size_t>& shape(){
-            return shape_;
-        }
-        std::vector<int>& data(){
-            return data_;
-        }
+        const std::vector<size_t>& shape() const { return shape_; }
+        const std::vector<DataType>&    data()  const { return data_;  }
 
-        void reshape(std::vector<size_t>& new_shape){
+        void reshape(std::vector<size_t> new_shape){
             size_t new_size = 1;
             for(auto dim : new_shape){
                 new_size *= dim;
@@ -32,7 +35,7 @@ class Tensor {
         }
 };
 
-Tensor matmul(Tensor& A, Tensor& B) {
+Tensor matmul(const Tensor& A, const Tensor& B) {
     if (A.shape().size()==2 && B.shape().size()==2){
 
         if (A.shape()[1] != B.shape()[0]) {
@@ -51,7 +54,7 @@ Tensor matmul(Tensor& A, Tensor& B) {
         40 41 42
         50 51 52
        */
-        std::vector<int> result_data(A.shape()[0] * B.shape()[1], 0);
+        std::vector<DataType> result_data(A.shape()[0] * B.shape()[1], 0);
         for (size_t i = 0; i < A.shape()[0]; ++i) {
             for (size_t j = 0; j < B.shape()[1]; ++j) {
                 for (size_t k = 0; k < A.shape()[1]; ++k) {
@@ -66,16 +69,16 @@ Tensor matmul(Tensor& A, Tensor& B) {
         if (A.shape()[0] != B.shape()[0]) {
             throw std::invalid_argument("Vectors must be of the same length for dot product.");
         }
-        int result = 0;
+        DataType result = 0;
         for (size_t i = 0; i < A.shape()[0]; ++i) {
             result += A.data()[i] * B.data()[i];
         }
-        return Tensor(std::vector<int>{result}, std::vector<size_t>{1});
+        return Tensor(std::vector<DataType>{result}, std::vector<size_t>{1});
     }else if (A.shape().size()==2 && B.shape().size()==1){
         if (A.shape()[1] != B.shape()[0]) {
             throw std::invalid_argument("Inner dimensions must match for matrix-vector multiplication.");
         }
-        std::vector<int> result_data(A.shape()[0], 0);
+        std::vector<DataType> result_data(A.shape()[0], 0);
         for (size_t i = 0; i < A.shape()[0]; ++i) {
             for (size_t j = 0; j < A.shape()[1]; ++j) {
                 result_data[i] += A.data()[i * A.shape()[1] + j] * B.data()[j];
@@ -87,7 +90,7 @@ Tensor matmul(Tensor& A, Tensor& B) {
         if (A.shape()[0] != B.shape()[0]) {
             throw std::invalid_argument("Inner dimensions must match for vector-matrix multiplication.");
         }
-        std::vector<int> result_data(B.shape()[1], 0);
+        std::vector<DataType> result_data(B.shape()[1], 0);
         for (size_t i = 0; i < B.shape()[1]; ++i) {
             for (size_t j = 0; j < A.shape()[0]; ++j) {
                 result_data[i] += A.data()[j] * B.data()[j * B.shape()[1] + i];
@@ -100,15 +103,15 @@ Tensor matmul(Tensor& A, Tensor& B) {
         if (A.shape()[A.shape().size()-1] != B.shape()[B.shape().size()-2]) {
             throw std::invalid_argument("Inner dimensions must match for tensor multiplication.");
         }
-        int step_A=A.shape()[A.shape().size()-1]*A.shape()[A.shape().size()-2];
-        int step_B=B.shape()[B.shape().size()-1]*B.shape()[B.shape().size()-2];
+        size_t step_A=A.shape()[A.shape().size()-1]*A.shape()[A.shape().size()-2];
+        size_t step_B=B.shape()[B.shape().size()-1]*B.shape()[B.shape().size()-2];
         if (std::vector<size_t>(A.shape().begin(), A.shape().end()-2) == std::vector<size_t>(B.shape().begin(), B.shape().end()-2)){
-            int total_steps=1;
+            size_t total_steps=1;
             for (size_t i = 0; i < A.shape().size()-2; ++i) {
                 total_steps *= A.shape()[i];
             }
-            std::vector<int> result_data(total_steps*A.shape()[A.shape().size()-2]*B.shape()[B.shape().size()-1], 0);
-            for (int step = 0; step < total_steps; ++step) {
+            std::vector<DataType> result_data(total_steps*A.shape()[A.shape().size()-2]*B.shape()[B.shape().size()-1], 0);
+            for (size_t step = 0; step < total_steps; ++step) {
                 for (size_t i = 0; i < A.shape()[A.shape().size()-2]; ++i) {
                     for (size_t j = 0; j < B.shape()[B.shape().size()-1]; ++j) {
                         for (size_t k = 0; k < A.shape()[A.shape().size()-1]; ++k) {
