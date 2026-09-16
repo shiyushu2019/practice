@@ -98,6 +98,48 @@ Tensor matmul(const Tensor& A, const Tensor& B) {
         }
         std::vector<size_t> result_shape = {B.shape()[1]};
         return Tensor(result_data, result_shape);
+    }else if (A.shape().size()==1 && B.shape().size() >= 3){
+        if (A.shape()[0] != B.shape()[B.shape().size()-2]) {
+            throw std::invalid_argument("Inner dimensions must match for vector-tensor multiplication.");
+        }
+        size_t batch_steps = 1;
+        for (size_t i = 0; i < B.shape().size()-2; ++i) {
+            batch_steps *= B.shape()[i];
+        }
+        size_t n = B.shape()[B.shape().size()-1];
+        std::vector<DataType> result_data(batch_steps * n, 0);
+        for (size_t step = 0; step < batch_steps; ++step) {
+            size_t base = step * B.shape()[B.shape().size()-2] * n;
+            for (size_t j = 0; j < n; ++j) {
+                for (size_t k = 0; k < A.shape()[0]; ++k) {
+                    result_data[step * n + j] += A.data()[k] * B.data()[base + k * n + j];
+                }
+            }
+        }
+        std::vector<size_t> result_shape(B.shape().begin(), B.shape().end()-2);
+        result_shape.push_back(n);
+        return Tensor(result_data, result_shape);
+    }else if (A.shape().size() >= 3 && B.shape().size()==1){
+        if (A.shape()[A.shape().size()-1] != B.shape()[0]) {
+            throw std::invalid_argument("Inner dimensions must match for tensor-vector multiplication.");
+        }
+        size_t batch_steps = 1;
+        for (size_t i = 0; i < A.shape().size()-2; ++i) {
+            batch_steps *= A.shape()[i];
+        }
+        size_t m = A.shape()[A.shape().size()-2];
+        std::vector<DataType> result_data(batch_steps * m, 0);
+        for (size_t step = 0; step < batch_steps; ++step) {
+            size_t base = step * m * A.shape()[A.shape().size()-1];
+            for (size_t i = 0; i < m; ++i) {
+                for (size_t k = 0; k < B.shape()[0]; ++k) {
+                    result_data[step * m + i] += A.data()[base + i * A.shape()[A.shape().size()-1] + k] * B.data()[k];
+                }
+            }
+        }
+        std::vector<size_t> result_shape(A.shape().begin(), A.shape().end()-2);
+        result_shape.push_back(m);
+        return Tensor(result_data, result_shape);
     }else{
         // 算最后两维度
         if (A.shape()[A.shape().size()-1] != B.shape()[B.shape().size()-2]) {
@@ -125,8 +167,73 @@ Tensor matmul(const Tensor& A, const Tensor& B) {
             result_shape.push_back(B.shape()[B.shape().size()-1]);
             return Tensor(result_data, result_shape);
         }else{
-            // TODO : 广播？
-            ;
+            std::vector<size_t> a_prefix(A.shape().begin(), A.shape().end()-2);
+            std::vector<size_t> b_prefix(B.shape().begin(), B.shape().end()-2);
+            size_t rank = std::max(a_prefix.size(), b_prefix.size());
+            std::vector<size_t> result_prefix(rank, 1);
+            for (size_t i = 0; i < rank; ++i) {
+                size_t a_dim = (i < rank - a_prefix.size()) ? 1 : a_prefix[i - (rank - a_prefix.size())];
+                size_t b_dim = (i < rank - b_prefix.size()) ? 1 : b_prefix[i - (rank - b_prefix.size())];
+                if (a_dim != b_dim && a_dim != 1 && b_dim != 1) {
+                    throw std::invalid_argument("Broadcast dimensions do not match for tensor multiplication.");
+                }
+                result_prefix[i] = std::max(a_dim, b_dim);
+            }
+
+            auto batch_offset = [](const std::vector<size_t>& shape, const std::vector<size_t>& result_shape, size_t batch_index) {
+                std::vector<size_t> padded(result_shape.size(), 1);
+                size_t pad = result_shape.size() - shape.size();
+                for (size_t i = 0; i < shape.size(); ++i) {
+                    padded[pad + i] = shape[i];
+                }
+
+                std::vector<size_t> coord(result_shape.size(), 0);
+                size_t temp = batch_index;
+                for (size_t i = result_shape.size(); i > 0; --i) {
+                    size_t axis = i - 1;
+                    coord[axis] = temp % result_shape[axis];
+                    temp /= result_shape[axis];
+                }
+
+                size_t offset = 0;
+                size_t stride = 1;
+                for (size_t i = result_shape.size(); i > 0; --i) {
+                    size_t axis = i - 1;
+                    if (padded[axis] != 1) {
+                        offset += coord[axis] * stride;
+                    }
+                    stride *= padded[axis];
+                }
+                return offset;
+            };
+
+            size_t total_steps = 1;
+            for (size_t dim : result_prefix) {
+                total_steps *= dim;
+            }
+            size_t m = A.shape()[A.shape().size() - 2];
+            size_t k = A.shape()[A.shape().size() - 1];
+            size_t n = B.shape()[B.shape().size() - 1];
+            std::vector<DataType> result_data(total_steps * m * n, 0);
+
+            for (size_t step = 0; step < total_steps; ++step) {
+                size_t a_batch = batch_offset(a_prefix, result_prefix, step);
+                size_t b_batch = batch_offset(b_prefix, result_prefix, step);
+                for (size_t i = 0; i < m; ++i) {
+                    for (size_t j = 0; j < n; ++j) {
+                        for (size_t p = 0; p < k; ++p) {
+                            result_data[step * m * n + i * n + j] +=
+                                A.data()[a_batch * m * k + i * k + p] *
+                                B.data()[b_batch * k * n + p * n + j];
+                        }
+                    }
+                }
+            }
+
+            std::vector<size_t> result_shape(result_prefix.begin(), result_prefix.end());
+            result_shape.push_back(m);
+            result_shape.push_back(n);
+            return Tensor(result_data, result_shape);
         }
     }
 }
