@@ -33,6 +33,116 @@ class Tensor {
             }
             shape_ = std::move(new_shape);
         }
+
+        void transpose(int dim1, int dim2)  {
+            int ndim = static_cast<int>(shape_.size());
+            if (dim1 < 0 || dim1 >= ndim || dim2 < 0 || dim2 >= ndim) {
+                throw std::invalid_argument("Dimension indices are out of bounds.");
+            }
+            if (dim1 == dim2) {
+                return;
+            }
+
+            std::vector<size_t> new_shape = shape_;
+            std::swap(new_shape[dim1], new_shape[dim2]);
+
+            std::vector<size_t> old_strides(ndim, 1);
+            for (int i = ndim - 2; i >= 0; --i) {
+                old_strides[i] = old_strides[i + 1] * shape_[i + 1];
+            }
+
+            std::vector<size_t> new_strides(ndim, 1);
+            for (int i = ndim - 2; i >= 0; --i) {
+                new_strides[i] = new_strides[i + 1] * new_shape[i + 1];
+            }
+
+            std::vector<DataType> new_data(data_.size());
+            std::vector<size_t> coords(ndim);
+
+            for (size_t i = 0; i < data_.size(); ++i) {
+                size_t idx = i;
+                for (int j = 0; j < ndim; ++j) {
+                    coords[j] = idx / old_strides[j];
+                    idx %= old_strides[j];
+                }
+
+                std::swap(coords[dim1], coords[dim2]);
+
+                size_t new_index = 0;
+                for (int j = 0; j < ndim; ++j) {
+                    new_index += coords[j] * new_strides[j];
+                }
+
+                new_data[new_index] = data_[i];
+            }
+
+            data_ = std::move(new_data);
+            shape_ = std::move(new_shape);
+        }
+
+        void sum(int dim) {
+            int ndim = static_cast<int>(shape_.size());
+            if (dim < 0 || dim >= ndim) {
+                throw std::invalid_argument("Dimension index is out of bounds.");
+            }
+
+            std::vector<size_t> new_shape = shape_;
+            new_shape.erase(new_shape.begin() + dim);
+
+            size_t new_size = 1;
+            for (auto d : new_shape) new_size *= d;
+
+            std::vector<DataType> new_data(new_size, 0);
+
+            std::vector<size_t> old_strides(ndim, 1);
+            for (int i = ndim - 2; i >= 0; --i) {
+                old_strides[i] = old_strides[i + 1] * shape_[i + 1];
+            }
+
+            std::vector<size_t> new_strides(new_shape.size(), 1);
+            for (int i = static_cast<int>(new_shape.size()) - 2; i >= 0; --i) {
+                new_strides[i] = new_strides[i + 1] * new_shape[i + 1];
+            }
+
+            std::vector<size_t> coords(ndim);
+
+            for (size_t i = 0; i < data_.size(); ++i) {
+                size_t idx = i;
+                for (int j = 0; j < ndim; ++j) {
+                    coords[j] = idx / old_strides[j];
+                    idx %= old_strides[j];
+                }
+
+                size_t new_index = 0;
+                for (int j = 0, k = 0; j < ndim; ++j) {
+                    if (j != dim) {
+                        new_index += coords[j] * new_strides[k++];
+                    }
+                }
+
+                new_data[new_index] += data_[i];
+            }
+
+            data_= std::move(new_data);
+            shape_= std::move(new_shape);
+        }
+
+        Tensor operator+(const Tensor& other) const {
+            if (shape_ != other.shape_) {
+                throw std::invalid_argument("Shapes must match for addition.");
+            }
+            std::vector<DataType> result_data(data_.size());
+            for (size_t i = 0; i < data_.size(); ++i) {
+                result_data[i] = data_[i] + other.data_[i];
+            }
+            return Tensor(std::move(result_data), shape_);
+        }
+
+        static Tensor zeros(std::vector<size_t> shape) {
+            size_t total = 1;
+            for (size_t d : shape) total *= d;
+            return Tensor(std::vector<DataType>(total, 0), std::move(shape));
+        }
 };
 
 Tensor matmul(const Tensor& A, const Tensor& B) {
