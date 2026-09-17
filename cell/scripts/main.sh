@@ -12,7 +12,7 @@ if [ "$(sha256sum ./dataset1.zip 2>/dev/null | cut -d' ' -f1)" = "$HASH" ]; then
     echo "dataset1.zip哈希匹配, 正在解压"
     unzip -q -o dataset1.zip -d .   # -q 静默，-o 覆盖已有文件
 else
-    echo "哈希不匹配，解压 dataset1.zip ..."
+    echo "哈希不匹配"
     exit 1
 fi
 
