@@ -13,6 +13,7 @@ from torchplus.utils import Init, class_split, save_excel, save_image2
 from torchplus.datasets import PreProcessFolder
 from piq import SSIMLoss
 
+# 主训练入口：使用 FaceScrub 数据，训练一个“特征编码 -> 图像重建”的自编码器网络。
 if __name__ == "__main__":
     batch_size = 256
     train_epoches = 100
@@ -105,6 +106,8 @@ if __name__ == "__main__":
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
 
+    # 特征提取器：通过一系列卷积和池化，把输入图像压缩成 8192 维隐特征，
+    # 后续再由反演器还原出近似图像。这里的设计目标是保留图像结构信息。
     class FeatureExtracter(nn.Module):
         def __init__(self):
             super(FeatureExtracter, self).__init__()
@@ -207,6 +210,8 @@ if __name__ == "__main__":
         myinversion.parameters(), lr=0.0002, betas=(0.5, 0.999), amsgrad=True
     )
 
+    # 训练主循环：先由特征提取器得到隐表示，再由反演器重建图像；
+    # 使用 SSIM 作为重建质量衡量指标，并定期保存中间结果和模型权重。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
             im = im.to(output_device)

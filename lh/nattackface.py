@@ -50,6 +50,8 @@ if __name__ == "__main__":
 
     ds_len = len(ds)
 
+    # 数据划分：前一半作为隐私数据，后一半用于辅助训练和攻击评估，
+    # 这样可以让训练/验证过程和隐私集合保持相对独立。
     priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
 
     aux_ds_len = len(aux_ds)
@@ -106,6 +108,8 @@ if __name__ == "__main__":
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
 
+    # 旧编码器结构：用卷积堆叠提取图像特征，最终压成 8192 维表示，
+    # 和后续反演器中的隐空间保持一致，以便进行对齐训练。
     class AEFeatureExtracter(nn.Module):
         def __init__(self):
             super(AEFeatureExtracter, self).__init__()
@@ -241,6 +245,8 @@ if __name__ == "__main__":
     ae_feature_extractor.requires_grad_(False)
     aeinversion.requires_grad_(False)
 
+    # 训练主循环：将目标模型特征投影到新空间，并与 AE 隐表示做对齐；
+    # 在保持重建质量的同时，尽量接近目标特征分布。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
             im = im.to(output_device)

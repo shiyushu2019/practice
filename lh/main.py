@@ -112,6 +112,8 @@ def dynamic_quantize_aeinversion(model):
     return model_quantized
 
 
+# 该脚本用于加载训练好的特征提取器和反演器，
+# 通过对 NewFE / AEInversion 做量化并比较模型体积与重建效果。
 if __name__ == "__main__":
     batch_size = 16
     root_dir = "./log/paper5w/logZZPMAIN.22222mixed_quantized"
@@ -147,6 +149,8 @@ if __name__ == "__main__":
 
     ds = ImageFolder(root=dataset_dir, transform=transform)
     ds_len = len(ds)
+    # 数据集按 1:1 划分为隐私集和辅助集；其中辅助集再继续拆成训练/测试集，
+    # 方便在量化和重建实验中进行校准与评估。
     priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
     aux_ds_len = len(aux_ds)
     aux_train_ds, aux_test_ds = random_split(
@@ -176,7 +180,9 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("Loading models...")
     print("="*50)
-    
+
+    # 加载目标模型、投影模块和解码器；其中目标特征提取器用于生成参考特征，
+    # NewFE 与 AEInversion 则分别负责映射和重建。
     target_feature_extractor = resnet50fe().train(False).to(device)
     target_feature_extractor.load_state_dict(
         torch.load(open(target_feature_pkl, "rb"), map_location=device)
@@ -202,7 +208,7 @@ if __name__ == "__main__":
     newfe.requires_grad_(False)
     aeinversion.requires_grad_(False)
 
-    # ��ȡ��������У׼
+    # 采样少量训练图像，提取其目标特征，用于后续量化校准过程。
     print("\n" + "="*50)
     print("Extracting features for calibration...")
     print("="*50)
@@ -220,19 +226,19 @@ if __name__ == "__main__":
     
     calib_dl = DataLoader(TensorDataset(features), batch_size=32, shuffle=False)
 
-    # ��̬���� NewFE
+    # 针对 NewFE 做静态量化：使用校准集统计量化参数，压缩模型权重。
     print("\n" + "="*50)
     print("Quantizing NewFE (Static)...")
     print("="*50)
     newfe_quantized = static_quantize_newfe(newfe, calib_dl)
 
-    # ��̬���� AEInversion
+    # 对 AEInversion 执行动态量化，适合卷积转置层在推理时的低精度压缩。
     print("\n" + "="*50)
     print("Quantizing AEInversion (Dynamic)...")
     print("="*50)
     aeinversion_quantized = dynamic_quantize_aeinversion(aeinversion)
 
-    # ����ģ�ʹ�С
+    # 对比量化前后模型体积，观察压缩效果和总体节省比例。
     print("\n" + "="*50)
     print("Model size comparison...")
     print("="*50)
@@ -255,12 +261,12 @@ if __name__ == "__main__":
     total_int8 = int8_size_newfe + int8_size_ae
     print(f"Total: FP32={total_fp32:.2f}MB, INT8={total_int8:.2f}MB, ratio={total_fp32/total_int8:.1f}x")
 
-    # ��������������ļ��нṹ���������ͼƬ��
+    # ��������������ļ��нṹ���������ͼƬ��
     print("\n" + "="*50)
     print("Exporting results (all images, compressed)...")
     print("="*50)
     
-    JPEG_QUALITY = 50  # JPEG����
+    JPEG_QUALITY = 50  # JPEG����
     
     target_feature_extractor = target_feature_extractor.to(device)
     newfe_quantized = newfe_quantized.to(device)
@@ -269,7 +275,7 @@ if __name__ == "__main__":
     def process_and_save(dataloader, dataset_name):
         print(f"\n  Processing {dataset_name}...")
         
-        # ����Ŀ¼
+        # ����Ŀ¼
         input_dir = os.path.join(log_dir, dataset_name, "input")
         output_dir = os.path.join(log_dir, dataset_name, "output")
         os.makedirs(input_dir, exist_ok=True)
@@ -288,13 +294,13 @@ if __name__ == "__main__":
             
             bs = rim.shape[0]
             for j in range(bs):
-                # ��������ͼƬ��PNG��ʽ������������
+                # ��������ͼƬ��PNG��ʽ������������
                 input_path = os.path.join(input_dir, f"input_{batch_idx}_{j}.png")
                 input_np = (im2[j].cpu().numpy() * 255).astype(np.uint8)
                 input_np = np.transpose(input_np, (1, 2, 0))
                 Image.fromarray(input_np).save(input_path)
                 
-                # �������ͼƬ��JPEGѹ����
+                # �������ͼƬ��JPEGѹ����
                 output_path = os.path.join(output_dir, f"output_{batch_idx}_{j}.jpg")
                 save_compressed_image(rim[j], output_path, quality=JPEG_QUALITY)
                 
@@ -302,21 +308,21 @@ if __name__ == "__main__":
             
             batch_idx += 1
             
-            # ÿ����10��batch��ӡһ�ν���
+            # ÿ����10��batch��ӡһ�ν���
             if batch_idx % 10 == 0:
                 print(f"    Processed {batch_idx} batches, {total_images} images")
         
         print(f"    Completed {dataset_name}: {total_images} images saved")
         return total_images
     
-    # ���������������ݼ�
+    # ���������������ݼ�
     train_count = process_and_save(train_dl, "train")
     test_count = process_and_save(test_dl, "test")
     priv_count = process_and_save(priv_dl, "priv")
     
     print(f"\n  Total images saved: {train_count + test_count + priv_count}")
 
-    # �����������ģ��
+    # �����������ģ��
     torch.save(newfe_quantized.cpu().state_dict(), f"{log_dir}/newfe_static_quantized.pkl")
     torch.save(aeinversion_quantized.cpu().state_dict(), f"{log_dir}/aeinversion_dynamic_quantized.pkl")
     

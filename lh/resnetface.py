@@ -18,6 +18,7 @@ if __name__ == "__main__":
     log_epoch = 4
     class_num = 530
     root_dir = "./log/paper5w/logZZPMAIN.resnetface"
+    # 训练数据来自 FaceScrub，统一 resize 到 224x224，并按 6:1 的比例切分训练/测试集。
     dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub"
     h = 224
     w = 224
@@ -91,6 +92,8 @@ if __name__ == "__main__":
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
 
+    # 分类头：将 ResNet50 提取到的特征向量映射到 530 个身份类别，
+    # 这是最后一层线性分类器，用于训练识别任务。
     class CLS(nn.Module):
         def __init__(self, in_dim, out_dim):
             super(CLS, self).__init__()
@@ -113,6 +116,8 @@ if __name__ == "__main__":
         cls.parameters(), lr=0.0002, betas=(0.5, 0.999), amsgrad=True
     )
 
+    # 训练主循环：先前向计算特征和 logits，再用交叉熵更新分类器和特征提取器；
+    # 每隔若干轮记录损失和准确率，并保存模型快照。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
         iters = tqdm(train_dl, desc=f"epoch {epoch_id}")
         for i, (im, label) in enumerate(iters):

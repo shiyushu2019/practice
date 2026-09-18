@@ -49,6 +49,8 @@ if __name__ == "__main__":
 
     ds_len = len(ds)
 
+    # 数据集按照隐私/辅助两部分拆分：一半做隐私验证，一半作为训练或评估集合，
+    # 保持和生成攻击模型时的样本分布一致。
     priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
 
     aux_ds_len = len(aux_ds)
@@ -94,6 +96,8 @@ if __name__ == "__main__":
         pin_memory=True,
     )
 
+    # NewFE 是一个轻量投影头，用于把 ResNet50 的特征映射到 8192 维隐空间，
+    # 以便和 AE 编码器的输出对齐，以后可以直接重建图像。
     class NewFE(nn.Module):
         def __init__(self, in_dim, out_dim) -> None:
             super(NewFE, self).__init__()
@@ -173,7 +177,9 @@ if __name__ == "__main__":
     target_feature_extractor.requires_grad_(False)
     newfe.requires_grad_(False)
     aeinversion.requires_grad_(False)
-    
+
+    # 生成样例图：在不更新参数的情况下，将训练集、测试集和隐私集的图像
+    # 经过特征映射和反演重建，保存输入/输出对，方便观察恢复效果。
     with torch.no_grad():
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"export train")):
             im = im.to(output_device)
