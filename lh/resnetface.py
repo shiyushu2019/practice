@@ -1,42 +1,39 @@
 import os
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
 from torchvision.models import ResNet50_Weights
 from tqdm import tqdm
-from torchplus.utils import Init, ClassificationAccuracy
+from torchplus.utils import ClassificationAccuracy
 from torchplus.models import resnet50fe, ResNet50FE_Dim
 
 if __name__ == "__main__":
     batch_size = 64
     train_epoches = 48
     log_epoch = 4
-    class_num = 530
-    root_dir = "./log/paper5w/logZZPMAIN.resnetface"
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # root_dir = "./log/paper5w/logZZPMAIN.resnetface"
     # 训练数据来自 FaceScrub，统一 resize 到 224x224，并按 6:1 的比例切分训练/测试集。
-    dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub"
+    dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
     h = 224
     w = 224
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=True,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment=f"main FaceScrub resnet50",
-    )
-    output_device = init.get_device()
-    writer = init.get_writer()
-    log_dir, model_dir = init.get_log_dir()
+    output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_dir = "./checkpoints/"
+    log_dir = "./checkpoints/"
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+
     data_workers = 2
 
-    transform = Compose(
+    train_transform = Compose(
         [
             Resize((h, w)),
             RandomHorizontalFlip(),
@@ -44,17 +41,25 @@ if __name__ == "__main__":
             ToDtype(torch.float, scale=True),
         ]
     )
-    dataset_dir = '/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub'
-    ds = ImageFolder(root=dataset_dir, transform=transform)
-
-    ds_len = len(ds)
-
-    priv_train_ds, priv_test_ds = random_split(
-        ds, [ds_len * 6 // 7, ds_len - ds_len * 6 // 7]
+    test_transform = Compose(
+        [
+            Resize((h, w)),
+            ToImage(),
+            ToDtype(torch.float, scale=True),
+        ]
     )
+    train_source = ImageFolder(root=dataset_dir, transform=train_transform)
+    test_source = ImageFolder(root=dataset_dir, transform=test_transform)
+    if train_source.classes != test_source.classes:
+        raise RuntimeError("Training and test datasets have different class mappings")
 
-    train_ds = priv_train_ds
-    test_ds = priv_test_ds
+    ds_len = len(train_source)
+    split_generator = torch.Generator().manual_seed(seed)
+    permutation = torch.randperm(ds_len, generator=split_generator).tolist()
+    train_len = ds_len * 6 // 7
+    train_ds = Subset(train_source, permutation[:train_len])
+    test_ds = Subset(test_source, permutation[train_len:])
+    class_num = len(train_source.classes)
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
@@ -136,12 +141,13 @@ if __name__ == "__main__":
 
         if epoch_id % log_epoch == 0:
             train_ca = ClassificationAccuracy(class_num)
-            after_softmax = F.softmax(out, dim=-1)
-            predict = torch.argmax(after_softmax, dim=-1)
+            predict = torch.argmax(out, dim=-1)
             train_ca.accumulate(label=label, predict=predict)
             acc_train = train_ca.get()
-            writer.add_scalar("loss", loss, epoch_id)
-            writer.add_scalar("acc_training", acc_train, epoch_id)
+            # writer.add_scalar("loss", loss, epoch_id)
+            # writer.add_scalar("acc_training", acc_train, epoch_id)
+            print("loss", loss, epoch_id)
+            print("acc_training", acc_train, epoch_id)
             with open(
                 os.path.join(log_dir, f"feature_extractor_{epoch_id}.pkl"), "wb"
             ) as f:
@@ -163,15 +169,17 @@ if __name__ == "__main__":
                     feature = feature_extractor.forward(im)
                     out = cls.forward(feature)
                     ce = nn.CrossEntropyLoss()(out, label)
-                    after_softmax = F.softmax(out, dim=-1)
-                    predict = torch.argmax(after_softmax, dim=-1)
+                    predict = torch.argmax(out, dim=-1)
                     test_ca.accumulate(label=label, predict=predict)
                     celoss += ce
 
                 celossavg = celoss / r
                 acc_test = test_ca.get()
-                writer.add_scalar("train loss", celossavg, epoch_id)
-                writer.add_scalar("acc_train", acc_test, epoch_id)
+                # writer.add_scalar("train loss", celossavg, epoch_id)
+                # writer.add_scalar("acc_train", acc_test, epoch_id)
+                print("acc_train", acc_test, epoch_id)
+
+                print("train loss", celossavg, epoch_id)
 
                 r = 0
                 celoss = 0
@@ -184,14 +192,15 @@ if __name__ == "__main__":
                     feature = feature_extractor.forward(im)
                     out = cls.forward(feature)
                     ce = nn.CrossEntropyLoss()(out, label)
-                    after_softmax = F.softmax(out, dim=-1)
-                    predict = torch.argmax(after_softmax, dim=-1)
+                    predict = torch.argmax(out, dim=-1)
                     test_ca.accumulate(label=label, predict=predict)
                     celoss += ce
 
                 celossavg = celoss / r
                 acc_test = test_ca.get()
-                writer.add_scalar("test loss", celossavg, epoch_id)
-                writer.add_scalar("acc_test", acc_test, epoch_id)
-
-    writer.close()
+                #writer.add_scalar("test loss", celossavg, epoch_id)
+                #writer.add_scalar("acc_test", acc_test, epoch_id)
+                print("test loss", celossavg, epoch_id)
+                print("acc_test", acc_test, epoch_id)
+                feature_extractor.train()
+                cls.train()
