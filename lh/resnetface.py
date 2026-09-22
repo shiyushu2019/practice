@@ -26,8 +26,8 @@ if __name__ == "__main__":
     w = 224
 
     output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model_dir = "./checkpoints/"
-    log_dir = "./checkpoints/"
+    model_dir = "./checkpoints/resnetface"
+    log_dir = "./checkpoints/resnetface"
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(log_dir, exist_ok=True)
 
