@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -15,29 +15,24 @@ from torchplus.utils import (
 
 if __name__ == "__main__":
     batch_size = 16
-    class_num = 530
-    root_dir = "./log/paper5w/logZZPMAIN.testnattackface.resnet"
-    target_feature_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.resnetface/Log_2026Apr11_19-10-14_supervisor-G5500-V7_main FaceScrub resnet50/feature_extractor_48.pkl"
-    ae_inv_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.aeface/Model_2026Apr11_22-41-52_supervisor-G5500-V7_FaceScrub ae 8192 norm 128pix ds2/myinversion_100.pkl"
-    newfe_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.nattackface.resnet/Model_2026Apr12_12-54-29_supervisor-G5500-V7_FaceScrub nattack norm resnet50 newfe 128pix cossim ds2/newfe_100.pkl"
-    dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub/"
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    root_dir = "./checkpoints/testnattackface"
+    target_feature_pkl = "./checkpoints/resnetface/feature_extractor_48.pkl"
+    ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
+    newfe_pkl = "./checkpoints/nattackface/newfe_100.pkl"
+    dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub/"
     h = 224
     w = 224
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=False,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment=f"test FaceScrub newfe attack norm resnet50 128pix cossim 8e",
-    )
-    output_device = init.get_device()
-    writer = init.get_writer()
-    log_dir = init.get_log_dir()
+    output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_dir = root_dir
+    os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
-    transform = Compose(
+    eval_transform = Compose(
         [
             Resize((h, w)),
             ToImage(),
@@ -45,22 +40,20 @@ if __name__ == "__main__":
         ]
     )
 
-    ds = ImageFolder(root=dataset_dir, transform=transform)
-
+    ds = ImageFolder(root=dataset_dir, transform=eval_transform)
     ds_len = len(ds)
+    split_generator = torch.Generator().manual_seed(seed)
+    permutation = torch.randperm(ds_len, generator=split_generator).tolist()
+    victim_train_len = ds_len * 6 // 7
+    victim_train_indices = permutation[:victim_train_len]
+    victim_test_indices = permutation[victim_train_len:]
+    attacker_train_len = len(victim_test_indices) * 6 // 7
+    attacker_train_indices = victim_test_indices[:attacker_train_len]
+    attacker_test_indices = victim_test_indices[attacker_train_len:]
 
-    # 数据集按照隐私/辅助两部分拆分：一半做隐私验证，一半作为训练或评估集合，
-    # 保持和生成攻击模型时的样本分布一致。
-    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
-
-    aux_ds_len = len(aux_ds)
-
-    aux_train_ds, aux_test_ds = random_split(
-        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
-    )
-
-    train_ds = aux_train_ds
-    test_ds = aux_test_ds
+    train_ds = Subset(ds, attacker_train_indices)
+    test_ds = Subset(ds, attacker_test_indices)
+    priv_ds = Subset(ds, victim_train_indices)
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
@@ -219,5 +212,3 @@ if __name__ == "__main__":
             save_image2(im2.detach(), f"{log_dir}/priv/input/{i}.png", nrow=4)
             save_image2(rim.detach(), f"{log_dir}/priv/output/{i}.png", nrow=4)
             break
-
-    writer.close()

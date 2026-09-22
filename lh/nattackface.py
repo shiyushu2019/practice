@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -16,29 +16,36 @@ if __name__ == "__main__":
     batch_size = 256
     train_epoches = 100
     log_epoch = 4
-    class_num = 530
-    root_dir = "./log/paper5w/logZZPMAIN.nattackface.resnet"
-    target_feature_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.resnetface/Log_2026Apr11_19-10-14_supervisor-G5500-V7_main FaceScrub resnet50/feature_extractor_48.pkl"
-    ae_feature_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.aeface/Model_2026Apr11_22-41-52_supervisor-G5500-V7_FaceScrub ae 8192 norm 128pix ds2/feature_extractor_100.pkl"
-    ae_inv_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.aeface/Model_2026Apr11_22-41-52_supervisor-G5500-V7_FaceScrub ae 8192 norm 128pix ds2/myinversion_100.pkl"
-    dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub"
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    root_dir = "./checkpoints/nattackface"
+    target_feature_pkl = "./checkpoints/resnetface/feature_extractor_48.pkl"
+    ae_feature_pkl = "./checkpoints/aeface/feature_extractor_100.pkl"
+    ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
+    dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
     h = 224
     w = 224
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=True,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment=f"FaceScrub nattack norm resnet50 newfe 128pix cossim ds2",
-    )
-    output_device = init.get_device()
-    writer = init.get_writer()
-    log_dir, model_dir = init.get_log_dir()
+    output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_dir = root_dir
+    model_dir = root_dir
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "input"), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "output"), exist_ok=True)
     data_workers = 2
 
-    transform = Compose(
+    train_transform = Compose(
+        [
+            Resize((h, w)),
+            RandomHorizontalFlip(),
+            ToImage(),
+            ToDtype(torch.float, scale=True),
+        ]
+    )
+    eval_transform = Compose(
         [
             Resize((h, w)),
             ToImage(),
@@ -46,22 +53,24 @@ if __name__ == "__main__":
         ]
     )
 
-    ds = ImageFolder(root=dataset_dir, transform=transform)
+    train_source = ImageFolder(root=dataset_dir, transform=train_transform)
+    eval_source = ImageFolder(root=dataset_dir, transform=eval_transform)
+    if train_source.classes != eval_source.classes:
+        raise RuntimeError("Training and evaluation datasets have different class mappings")
 
-    ds_len = len(ds)
+    ds_len = len(train_source)
+    split_generator = torch.Generator().manual_seed(seed)
+    permutation = torch.randperm(ds_len, generator=split_generator).tolist()
+    victim_train_len = ds_len * 6 // 7
+    victim_train_indices = permutation[:victim_train_len]
+    victim_test_indices = permutation[victim_train_len:]
+    attacker_train_len = len(victim_test_indices) * 6 // 7
+    attacker_train_indices = victim_test_indices[:attacker_train_len]
+    attacker_test_indices = victim_test_indices[attacker_train_len:]
 
-    # 数据划分：前一半作为隐私数据，后一半用于辅助训练和攻击评估，
-    # 这样可以让训练/验证过程和隐私集合保持相对独立。
-    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
-
-    aux_ds_len = len(aux_ds)
-
-    aux_train_ds, aux_test_ds = random_split(
-        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
-    )
-
-    train_ds = aux_train_ds
-    test_ds = aux_test_ds
+    train_ds = Subset(train_source, attacker_train_indices)
+    test_ds = Subset(eval_source, attacker_test_indices)
+    priv_ds = Subset(eval_source, victim_train_indices)
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
@@ -73,6 +82,7 @@ if __name__ == "__main__":
         dataset=train_ds,
         batch_size=batch_size,
         shuffle=True,
+        generator=torch.Generator().manual_seed(seed),
         num_workers=data_workers,
         drop_last=True,
         pin_memory=True,
@@ -268,9 +278,9 @@ if __name__ == "__main__":
             optimizer.step()
 
         if epoch_id % log_epoch == 0:
-            writer.add_scalar("loss", loss, epoch_id)
-            writer.add_scalar("ssim", ssim, epoch_id)
-            writer.add_scalar("cossim", cossim, epoch_id)
+            print("loss", loss.item(), epoch_id)
+            print("ssim", ssim.item(), epoch_id)
+            print("cossim", cossim.item(), epoch_id)
             save_image2(im.detach(), f"{log_dir}/input/{epoch_id}.png")
             save_image2(rim.detach(), f"{log_dir}/output/{epoch_id}.png")
             with open(os.path.join(model_dir, f"newfe_{epoch_id}.pkl"), "wb") as f:
@@ -295,7 +305,7 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("train ssim", ssimlossavg, epoch_id)
+                print("train ssim", ssimlossavg.item(), epoch_id)
 
                 r = 0
                 ssimloss = 0
@@ -313,7 +323,7 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("test ssim", ssimlossavg, epoch_id)
+                print("test ssim", ssimlossavg.item(), epoch_id)
 
                 r = 0
                 ssimloss = 0
@@ -331,5 +341,5 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("priv ssim", ssimlossavg, epoch_id)
-    writer.close()
+                print("priv ssim", ssimlossavg.item(), epoch_id)
+                newfe.train()

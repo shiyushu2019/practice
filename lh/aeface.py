@@ -64,9 +64,8 @@ if __name__ == "__main__":
         ]
     )
 
-    # Keep exactly the same sample split as resnetface.py.  Only the image
-    # resolution and augmentation differ because AE reconstructs 128x128
-    # images while the victim model consumes 224x224 images.
+    # Reuse resnetface.py's fixed split. The AE is trained only on the
+    # victim-unseen portion, so it never trains on the victim's images.
     train_source = ImageFolder(root=dataset_dir, transform=train_transform)
     eval_source = ImageFolder(root=dataset_dir, transform=eval_transform)
     if train_source.classes != eval_source.classes:
@@ -75,16 +74,16 @@ if __name__ == "__main__":
     ds_len = len(train_source)
     split_generator = torch.Generator().manual_seed(seed)
     permutation = torch.randperm(ds_len, generator=split_generator).tolist()
-    train_len = ds_len * 6 // 7
-    train_indices = permutation[:train_len]
-    test_indices = permutation[train_len:]
+    victim_train_len = ds_len * 6 // 7
+    victim_train_indices = permutation[:victim_train_len]
+    victim_test_indices = permutation[victim_train_len:]
+    attacker_train_len = len(victim_test_indices) * 6 // 7
+    attacker_train_indices = victim_test_indices[:attacker_train_len]
+    attacker_test_indices = victim_test_indices[attacker_train_len:]
 
-    # These indices correspond to resnetface.py's train_ds and test_ds.
-    train_ds = Subset(train_source, train_indices)
-    test_ds = Subset(eval_source, test_indices)
-    # resnetface.py has no separate private split. Keep this loader for the
-    # existing evaluation loop, but do not label it as an independent set.
-    priv_ds = test_ds
+    train_ds = Subset(train_source, attacker_train_indices)
+    test_ds = Subset(eval_source, attacker_test_indices)
+    priv_ds = Subset(eval_source, victim_train_indices)
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
