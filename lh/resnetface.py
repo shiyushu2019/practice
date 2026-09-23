@@ -1,8 +1,9 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -33,7 +34,7 @@ if __name__ == "__main__":
 
     data_workers = 2
 
-    train_transform = Compose(
+    transform = Compose(
         [
             Resize((h, w)),
             RandomHorizontalFlip(),
@@ -41,25 +42,12 @@ if __name__ == "__main__":
             ToDtype(torch.float, scale=True),
         ]
     )
-    test_transform = Compose(
-        [
-            Resize((h, w)),
-            ToImage(),
-            ToDtype(torch.float, scale=True),
-        ]
+    ds = ImageFolder(root=dataset_dir, transform=transform)
+    ds_len = len(ds)
+    train_ds, test_ds = random_split(
+        ds, [ds_len * 6 // 7, ds_len - ds_len * 6 // 7]
     )
-    train_source = ImageFolder(root=dataset_dir, transform=train_transform)
-    test_source = ImageFolder(root=dataset_dir, transform=test_transform)
-    if train_source.classes != test_source.classes:
-        raise RuntimeError("Training and test datasets have different class mappings")
-
-    ds_len = len(train_source)
-    split_generator = torch.Generator().manual_seed(seed)
-    permutation = torch.randperm(ds_len, generator=split_generator).tolist()
-    train_len = ds_len * 6 // 7
-    train_ds = Subset(train_source, permutation[:train_len])
-    test_ds = Subset(test_source, permutation[train_len:])
-    class_num = len(train_source.classes)
+    class_num = len(ds.classes)
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
@@ -141,7 +129,8 @@ if __name__ == "__main__":
 
         if epoch_id % log_epoch == 0:
             train_ca = ClassificationAccuracy(class_num)
-            predict = torch.argmax(out, dim=-1)
+            after_softmax = F.softmax(out, dim=-1)
+            predict = torch.argmax(after_softmax, dim=-1)
             train_ca.accumulate(label=label, predict=predict)
             acc_train = train_ca.get()
             # writer.add_scalar("loss", loss, epoch_id)
@@ -169,7 +158,8 @@ if __name__ == "__main__":
                     feature = feature_extractor.forward(im)
                     out = cls.forward(feature)
                     ce = nn.CrossEntropyLoss()(out, label)
-                    predict = torch.argmax(out, dim=-1)
+                    after_softmax = F.softmax(out, dim=-1)
+                    predict = torch.argmax(after_softmax, dim=-1)
                     test_ca.accumulate(label=label, predict=predict)
                     celoss += ce
 
@@ -192,7 +182,8 @@ if __name__ == "__main__":
                     feature = feature_extractor.forward(im)
                     out = cls.forward(feature)
                     ce = nn.CrossEntropyLoss()(out, label)
-                    predict = torch.argmax(out, dim=-1)
+                    after_softmax = F.softmax(out, dim=-1)
+                    predict = torch.argmax(after_softmax, dim=-1)
                     test_ca.accumulate(label=label, predict=predict)
                     celoss += ce
 
@@ -202,5 +193,3 @@ if __name__ == "__main__":
                 #writer.add_scalar("acc_test", acc_test, epoch_id)
                 print("test loss", celossavg, epoch_id)
                 print("acc_test", acc_test, epoch_id)
-                feature_extractor.train()
-                cls.train()

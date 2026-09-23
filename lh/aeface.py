@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(log_dir, "input"), exist_ok=True)
     os.makedirs(os.path.join(log_dir, "output"), exist_ok=True)
 
-    train_transform = Compose(
+    transform = Compose(
         [
             Resize((h, w)),
             RandomHorizontalFlip(),
@@ -56,34 +56,18 @@ if __name__ == "__main__":
             ToDtype(torch.float, scale=True),
         ]
     )
-    eval_transform = Compose(
-        [
-            Resize((h, w)),
-            ToImage(),
-            ToDtype(torch.float, scale=True),
-        ]
+    ds = ImageFolder(root=dataset_dir, transform=transform)
+    ds_len = len(ds)
+    priv_ds, aux_ds = random_split(
+        ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2]
+    )
+    aux_ds_len = len(aux_ds)
+    aux_train_ds, aux_test_ds = random_split(
+        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
     )
 
-    # Reuse resnetface.py's fixed split. The AE is trained only on the
-    # victim-unseen portion, so it never trains on the victim's images.
-    train_source = ImageFolder(root=dataset_dir, transform=train_transform)
-    eval_source = ImageFolder(root=dataset_dir, transform=eval_transform)
-    if train_source.classes != eval_source.classes:
-        raise RuntimeError("Training and evaluation datasets have different class mappings")
-
-    ds_len = len(train_source)
-    split_generator = torch.Generator().manual_seed(seed)
-    permutation = torch.randperm(ds_len, generator=split_generator).tolist()
-    victim_train_len = ds_len * 6 // 7
-    victim_train_indices = permutation[:victim_train_len]
-    victim_test_indices = permutation[victim_train_len:]
-    attacker_train_len = len(victim_test_indices) * 6 // 7
-    attacker_train_indices = victim_test_indices[:attacker_train_len]
-    attacker_test_indices = victim_test_indices[attacker_train_len:]
-
-    train_ds = Subset(train_source, attacker_train_indices)
-    test_ds = Subset(eval_source, attacker_test_indices)
-    priv_ds = Subset(eval_source, victim_train_indices)
+    train_ds = aux_train_ds
+    test_ds = aux_test_ds
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
@@ -95,7 +79,6 @@ if __name__ == "__main__":
         dataset=train_ds,
         batch_size=batch_size,
         shuffle=True,
-        generator=torch.Generator().manual_seed(seed),
         num_workers=data_workers,
         drop_last=True,
         pin_memory=True,
@@ -318,5 +301,3 @@ if __name__ == "__main__":
 
                 ssimlossavg = ssimloss / r
                 print("priv ssim", ssimlossavg.item(), epoch_id)
-                feature_extractor.train()
-                myinversion.train()

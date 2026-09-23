@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -42,18 +42,16 @@ if __name__ == "__main__":
 
     ds = ImageFolder(root=dataset_dir, transform=eval_transform)
     ds_len = len(ds)
-    split_generator = torch.Generator().manual_seed(seed)
-    permutation = torch.randperm(ds_len, generator=split_generator).tolist()
-    victim_train_len = ds_len * 6 // 7
-    victim_train_indices = permutation[:victim_train_len]
-    victim_test_indices = permutation[victim_train_len:]
-    attacker_train_len = len(victim_test_indices) * 6 // 7
-    attacker_train_indices = victim_test_indices[:attacker_train_len]
-    attacker_test_indices = victim_test_indices[attacker_train_len:]
+    priv_ds, aux_ds = random_split(
+        ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2]
+    )
+    aux_ds_len = len(aux_ds)
+    aux_train_ds, aux_test_ds = random_split(
+        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
+    )
 
-    train_ds = Subset(ds, attacker_train_indices)
-    test_ds = Subset(ds, attacker_test_indices)
-    priv_ds = Subset(ds, victim_train_indices)
+    train_ds = aux_train_ds
+    test_ds = aux_test_ds
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
