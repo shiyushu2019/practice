@@ -7,10 +7,10 @@ DEVICE="${DEVICE:-0}"
 DATASET="mixed"
 EPOCHS=100
 
-HASH="404103f669dcb21c150dd0fed5720e202c460f73a39c42a82e3ef22c3978d2d5"
-if [ "$(sha256sum ./dataset1.zip 2>/dev/null | cut -d' ' -f1)" = "$HASH" ]; then
-    echo "dataset1.zip哈希匹配, 正在解压"
-    unzip -q -o dataset1.zip -d .   # -q 静默，-o 覆盖已有文件
+HASH="1742c29fe25727ca576046e9100e40ffcedc173b9d5b69bf92e5f70b1ae6d9f5"
+if [ "$(sha256sum ./dataset1.7z 2>/dev/null | cut -d' ' -f1)" = "$HASH" ]; then
+    echo "dataset1.7z哈希匹配, 正在解压"
+    7z x -y dataset1.7z -o. >/dev/null
 else
     echo "哈希不匹配"
     exit 1
