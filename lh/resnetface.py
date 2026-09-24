@@ -133,8 +133,6 @@ if __name__ == "__main__":
             predict = torch.argmax(after_softmax, dim=-1)
             train_ca.accumulate(label=label, predict=predict)
             acc_train = train_ca.get()
-            # writer.add_scalar("loss", loss, epoch_id)
-            # writer.add_scalar("acc_training", acc_train, epoch_id)
             print("loss", loss, epoch_id)
             print("acc_training", acc_train, epoch_id)
             with open(
@@ -165,10 +163,7 @@ if __name__ == "__main__":
 
                 celossavg = celoss / r
                 acc_test = test_ca.get()
-                # writer.add_scalar("train loss", celossavg, epoch_id)
-                # writer.add_scalar("acc_train", acc_test, epoch_id)
                 print("acc_train", acc_test, epoch_id)
-
                 print("train loss", celossavg, epoch_id)
 
                 r = 0
@@ -189,7 +184,5 @@ if __name__ == "__main__":
 
                 celossavg = celoss / r
                 acc_test = test_ca.get()
-                #writer.add_scalar("test loss", celossavg, epoch_id)
-                #writer.add_scalar("acc_test", acc_test, epoch_id)
                 print("test loss", celossavg, epoch_id)
                 print("acc_test", acc_test, epoch_id)

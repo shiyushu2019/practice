@@ -47,10 +47,10 @@ if __name__ == "__main__":
 
     ds = ImageFolder(root=dataset_dir, transform=transform)
     ds_len = len(ds)
-    priv_ds, aux_ds = random_split(
-        ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2]
-    )
+    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
+
     aux_ds_len = len(aux_ds)
+    
     aux_train_ds, aux_test_ds = random_split(
         aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
     )

@@ -18,28 +18,15 @@ if __name__ == "__main__":
     batch_size = 256
     train_epoches = 100
     log_epoch = 4
-    #class_num = 530
-    #root_dir = "./log/paper5w/logZZPMAIN.aeface"
+    h = 128
+    w = 128
+
+
     seed = 9970
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
     dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
-    h = 128
-    w = 128
-
-    #init = Init(
-    #    seed=9970,
-    #    log_root_dir=root_dir,
-    #    sep=True,
-    #    backup_filename=__file__,
-    #    tensorboard=True,
-    #    comment=f"FaceScrub ae 8192 norm 128pix ds2",
-    #)
-    #output_device = init.get_device()
-    #writer = init.get_writer()
-    #log_dir, model_dir = init.get_log_dir()
-    data_workers = 2
     output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_dir = "./checkpoints/aeface"
     log_dir = "./checkpoints/aeface"
@@ -47,6 +34,8 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(os.path.join(log_dir, "input"), exist_ok=True)
     os.makedirs(os.path.join(log_dir, "output"), exist_ok=True)
+
+    data_workers = 2
 
     transform = Compose(
         [
@@ -56,12 +45,15 @@ if __name__ == "__main__":
             ToDtype(torch.float, scale=True),
         ]
     )
+    
     ds = ImageFolder(root=dataset_dir, transform=transform)
+
     ds_len = len(ds)
-    priv_ds, aux_ds = random_split(
-        ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2]
-    )
+
+    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
+
     aux_ds_len = len(aux_ds)
+
     aux_train_ds, aux_test_ds = random_split(
         aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
     )
