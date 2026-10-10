@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split, Subset, ConcatDataset
+from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -13,27 +13,28 @@ from torchplus.utils import Init, class_split, save_excel, save_image2
 from torchplus.datasets import PreProcessFolder
 from piq import SSIMLoss
 
+# 主训练入口：使用 FaceScrub 数据，训练一个“特征编码 -> 图像重建”的自编码器网络。
 if __name__ == "__main__":
     batch_size = 256
     train_epoches = 100
     log_epoch = 4
-    class_num = 530
-    root_dir = "./log/paper5w/logZZPMAIN.aeface"
-    dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub"
     h = 128
     w = 128
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=True,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment=f"FaceScrub ae 8192 norm 128pix ds2",
-    )
-    output_device = init.get_device()
-    writer = init.get_writer()
-    log_dir, model_dir = init.get_log_dir()
+
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
+    output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_dir = "./checkpoints/aeface"
+    log_dir = "./checkpoints/aeface"
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "input"), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "output"), exist_ok=True)
+
     data_workers = 2
 
     transform = Compose(
@@ -44,7 +45,7 @@ if __name__ == "__main__":
             ToDtype(torch.float, scale=True),
         ]
     )
-
+    
     ds = ImageFolder(root=dataset_dir, transform=transform)
 
     ds_len = len(ds)
@@ -105,6 +106,8 @@ if __name__ == "__main__":
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
 
+    # 特征提取器：通过一系列卷积和池化，把输入图像压缩成 8192 维隐特征，
+    # 后续再由反演器还原出近似图像。这里的设计目标是保留图像结构信息。
     class FeatureExtracter(nn.Module):
         def __init__(self):
             super(FeatureExtracter, self).__init__()
@@ -207,6 +210,8 @@ if __name__ == "__main__":
         myinversion.parameters(), lr=0.0002, betas=(0.5, 0.999), amsgrad=True
     )
 
+    # 训练主循环：先由特征提取器得到隐表示，再由反演器重建图像；
+    # 使用 SSIM 作为重建质量衡量指标，并定期保存中间结果和模型权重。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
             im = im.to(output_device)
@@ -224,8 +229,8 @@ if __name__ == "__main__":
             optimizer.step()
 
         if epoch_id % log_epoch == 0:
-            writer.add_scalar("loss", loss, epoch_id)
-            writer.add_scalar("ssim", ssim, epoch_id)
+            print("loss", loss.item(), epoch_id)
+            print("ssim", ssim.item(), epoch_id)
             save_image2(im.detach(), f"{log_dir}/input/{epoch_id}.png")
             save_image2(rim.detach(), f"{log_dir}/output/{epoch_id}.png")
             with open(
@@ -255,7 +260,7 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("train ssim", ssimlossavg, epoch_id)
+                print("train ssim", ssimlossavg.item(), epoch_id)
 
                 r = 0
                 ssimloss = 0
@@ -271,7 +276,7 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("test ssim", ssimlossavg, epoch_id)
+                print("test ssim", ssimlossavg.item(), epoch_id)
 
                 r = 0
                 ssimloss = 0
@@ -287,5 +292,4 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("priv ssim", ssimlossavg, epoch_id)
-    writer.close()
+                print("priv ssim", ssimlossavg.item(), epoch_id)

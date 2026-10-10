@@ -16,26 +16,25 @@ if __name__ == "__main__":
     batch_size = 256
     train_epoches = 100
     log_epoch = 4
-    class_num = 530
-    root_dir = "./log/paper5w/logZZPMAIN.nattackface.resnet"
-    target_feature_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.resnetface/Log_2026Apr11_19-10-14_supervisor-G5500-V7_main FaceScrub resnet50/feature_extractor_48.pkl"
-    ae_feature_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.aeface/Model_2026Apr11_22-41-52_supervisor-G5500-V7_FaceScrub ae 8192 norm 128pix ds2/feature_extractor_100.pkl"
-    ae_inv_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.aeface/Model_2026Apr11_22-41-52_supervisor-G5500-V7_FaceScrub ae 8192 norm 128pix ds2/myinversion_100.pkl"
-    dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub"
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    root_dir = "./checkpoints/nattackface"
+    target_feature_pkl = "./checkpoints/resnetface/feature_extractor_48.pkl"
+    ae_feature_pkl = "./checkpoints/aeface/feature_extractor_100.pkl"
+    ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
+    dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
     h = 224
     w = 224
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=True,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment=f"FaceScrub nattack norm resnet50 newfe 128pix cossim ds2",
-    )
-    output_device = init.get_device()
-    writer = init.get_writer()
-    log_dir, model_dir = init.get_log_dir()
+    output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_dir = root_dir
+    model_dir = root_dir
+    os.makedirs(log_dir, exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "input"), exist_ok=True)
+    os.makedirs(os.path.join(log_dir, "output"), exist_ok=True)
     data_workers = 2
 
     transform = Compose(
@@ -47,13 +46,11 @@ if __name__ == "__main__":
     )
 
     ds = ImageFolder(root=dataset_dir, transform=transform)
-
     ds_len = len(ds)
-
     priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
 
     aux_ds_len = len(aux_ds)
-
+    
     aux_train_ds, aux_test_ds = random_split(
         aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
     )
@@ -106,6 +103,8 @@ if __name__ == "__main__":
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
 
+    # 旧编码器结构：用卷积堆叠提取图像特征，最终压成 8192 维表示，
+    # 和后续反演器中的隐空间保持一致，以便进行对齐训练。
     class AEFeatureExtracter(nn.Module):
         def __init__(self):
             super(AEFeatureExtracter, self).__init__()
@@ -241,6 +240,8 @@ if __name__ == "__main__":
     ae_feature_extractor.requires_grad_(False)
     aeinversion.requires_grad_(False)
 
+    # 训练主循环：将目标模型特征投影到新空间，并与 AE 隐表示做对齐；
+    # 在保持重建质量的同时，尽量接近目标特征分布。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
             im = im.to(output_device)
@@ -262,9 +263,9 @@ if __name__ == "__main__":
             optimizer.step()
 
         if epoch_id % log_epoch == 0:
-            writer.add_scalar("loss", loss, epoch_id)
-            writer.add_scalar("ssim", ssim, epoch_id)
-            writer.add_scalar("cossim", cossim, epoch_id)
+            print("loss", loss.item(), epoch_id)
+            print("ssim", ssim.item(), epoch_id)
+            print("cossim", cossim.item(), epoch_id)
             save_image2(im.detach(), f"{log_dir}/input/{epoch_id}.png")
             save_image2(rim.detach(), f"{log_dir}/output/{epoch_id}.png")
             with open(os.path.join(model_dir, f"newfe_{epoch_id}.pkl"), "wb") as f:
@@ -289,7 +290,7 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("train ssim", ssimlossavg, epoch_id)
+                print("train ssim", ssimlossavg.item(), epoch_id)
 
                 r = 0
                 ssimloss = 0
@@ -307,7 +308,7 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("test ssim", ssimlossavg, epoch_id)
+                print("test ssim", ssimlossavg.item(), epoch_id)
 
                 r = 0
                 ssimloss = 0
@@ -325,5 +326,4 @@ if __name__ == "__main__":
                     ssimloss += ssim
 
                 ssimlossavg = ssimloss / r
-                writer.add_scalar("priv ssim", ssimlossavg, epoch_id)
-    writer.close()
+                print("priv ssim", ssimlossavg.item(), epoch_id)

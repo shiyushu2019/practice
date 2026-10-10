@@ -15,29 +15,24 @@ from torchplus.utils import (
 
 if __name__ == "__main__":
     batch_size = 16
-    class_num = 530
-    root_dir = "./log/paper5w/logZZPMAIN.testnattackface.resnet"
-    target_feature_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.resnetface/Log_2026Apr11_19-10-14_supervisor-G5500-V7_main FaceScrub resnet50/feature_extractor_48.pkl"
-    ae_inv_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.aeface/Model_2026Apr11_22-41-52_supervisor-G5500-V7_FaceScrub ae 8192 norm 128pix ds2/myinversion_100.pkl"
-    newfe_pkl = "/data/code/jssnu005/two/Mapping-MIA/log/paper5w/logZZPMAIN.nattackface.resnet/Model_2026Apr12_12-54-29_supervisor-G5500-V7_FaceScrub nattack norm resnet50 newfe 128pix cossim ds2/newfe_100.pkl"
-    dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub/"
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    root_dir = "./checkpoints/testnattackface"
+    target_feature_pkl = "./checkpoints/resnetface/feature_extractor_48.pkl"
+    ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
+    newfe_pkl = "./checkpoints/nattackface/newfe_100.pkl"
+    dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub/"
     h = 224
     w = 224
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=False,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment=f"test FaceScrub newfe attack norm resnet50 128pix cossim 8e",
-    )
-    output_device = init.get_device()
-    writer = init.get_writer()
-    log_dir = init.get_log_dir()
+    output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_dir = root_dir
+    os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
-    transform = Compose(
+    eval_transform = Compose(
         [
             Resize((h, w)),
             ToImage(),
@@ -45,14 +40,10 @@ if __name__ == "__main__":
         ]
     )
 
-    ds = ImageFolder(root=dataset_dir, transform=transform)
-
+    ds = ImageFolder(root=dataset_dir, transform=eval_transform)
     ds_len = len(ds)
-
     priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
-
     aux_ds_len = len(aux_ds)
-
     aux_train_ds, aux_test_ds = random_split(
         aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
     )
@@ -94,6 +85,8 @@ if __name__ == "__main__":
         pin_memory=True,
     )
 
+    # NewFE 是一个轻量投影头，用于把 ResNet50 的特征映射到 8192 维隐空间，
+    # 以便和 AE 编码器的输出对齐，以后可以直接重建图像。
     class NewFE(nn.Module):
         def __init__(self, in_dim, out_dim) -> None:
             super(NewFE, self).__init__()
@@ -173,7 +166,9 @@ if __name__ == "__main__":
     target_feature_extractor.requires_grad_(False)
     newfe.requires_grad_(False)
     aeinversion.requires_grad_(False)
-    
+
+    # 生成样例图：在不更新参数的情况下，将训练集、测试集和隐私集的图像
+    # 经过特征映射和反演重建，保存输入/输出对，方便观察恢复效果。
     with torch.no_grad():
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"export train")):
             im = im.to(output_device)
@@ -213,5 +208,3 @@ if __name__ == "__main__":
             save_image2(im2.detach(), f"{log_dir}/priv/input/{i}.png", nrow=4)
             save_image2(rim.detach(), f"{log_dir}/priv/output/{i}.png", nrow=4)
             break
-
-    writer.close()

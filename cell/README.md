@@ -85,6 +85,7 @@ bash scripts/main.sh
 > 文档补齐项：`--variant dams`（DAMS-Net 消融）与 `--variant cf`（完整 CF-YOLOv8，含 DAMS-Net，权重名 `cf.pt`）；
 > `eval.py --plots` 会把混淆矩阵/PR 曲线存到 `cell/results/`；`inf.py --benchmark` 输出 FPS；
 > `convert_voc_to_yolo.py` 完成 VOC→YOLO 转换；`lightweight.py quantize/prune/distill` 做 INT8 量化、结构化剪枝与知识蒸馏（蒸馏复用 ultralytics 内置 `distill_model`，教师 CF-YOLOv8 → 剪枝学生）。
+> `eval.py` 还会根据 `doc.txt` 中的 Precision 和 mAP@0.5 声明生成模型对比表图片，输出到 `cell/temp/accuracy_comparison_<dataset>_<split>.png`。
 
 ## 实验结果（mixed 2 类 · BCCD + TXL-PBC）
 

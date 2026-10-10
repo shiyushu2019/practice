@@ -9,30 +9,29 @@ from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
 from torchvision.models import ResNet50_Weights
 from tqdm import tqdm
-from torchplus.utils import Init, ClassificationAccuracy
+from torchplus.utils import ClassificationAccuracy
 from torchplus.models import resnet50fe, ResNet50FE_Dim
 
 if __name__ == "__main__":
     batch_size = 64
     train_epoches = 48
     log_epoch = 4
-    class_num = 530
-    root_dir = "./log/paper5w/logZZPMAIN.resnetface"
-    dataset_dir = "/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub"
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # root_dir = "./log/paper5w/logZZPMAIN.resnetface"
+    # 训练数据来自 FaceScrub，统一 resize 到 224x224，并按 6:1 的比例切分训练/测试集。
+    dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
     h = 224
     w = 224
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=True,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment=f"main FaceScrub resnet50",
-    )
-    output_device = init.get_device()
-    writer = init.get_writer()
-    log_dir, model_dir = init.get_log_dir()
+    output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model_dir = "./checkpoints/resnetface"
+    log_dir = "./checkpoints/resnetface"
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(log_dir, exist_ok=True)
+
     data_workers = 2
 
     transform = Compose(
@@ -43,17 +42,12 @@ if __name__ == "__main__":
             ToDtype(torch.float, scale=True),
         ]
     )
-    dataset_dir = '/data/code/jssnu005/two/Mapping-MIA/data/FaceScrub'
     ds = ImageFolder(root=dataset_dir, transform=transform)
-
     ds_len = len(ds)
-
-    priv_train_ds, priv_test_ds = random_split(
+    train_ds, test_ds = random_split(
         ds, [ds_len * 6 // 7, ds_len - ds_len * 6 // 7]
     )
-
-    train_ds = priv_train_ds
-    test_ds = priv_test_ds
+    class_num = len(ds.classes)
 
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
@@ -91,6 +85,8 @@ if __name__ == "__main__":
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
 
+    # 分类头：将 ResNet50 提取到的特征向量映射到 530 个身份类别，
+    # 这是最后一层线性分类器，用于训练识别任务。
     class CLS(nn.Module):
         def __init__(self, in_dim, out_dim):
             super(CLS, self).__init__()
@@ -113,6 +109,8 @@ if __name__ == "__main__":
         cls.parameters(), lr=0.0002, betas=(0.5, 0.999), amsgrad=True
     )
 
+    # 训练主循环：先前向计算特征和 logits，再用交叉熵更新分类器和特征提取器；
+    # 每隔若干轮记录损失和准确率，并保存模型快照。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
         iters = tqdm(train_dl, desc=f"epoch {epoch_id}")
         for i, (im, label) in enumerate(iters):
@@ -135,8 +133,8 @@ if __name__ == "__main__":
             predict = torch.argmax(after_softmax, dim=-1)
             train_ca.accumulate(label=label, predict=predict)
             acc_train = train_ca.get()
-            writer.add_scalar("loss", loss, epoch_id)
-            writer.add_scalar("acc_training", acc_train, epoch_id)
+            print("loss", loss, epoch_id)
+            print("acc_training", acc_train, epoch_id)
             with open(
                 os.path.join(log_dir, f"feature_extractor_{epoch_id}.pkl"), "wb"
             ) as f:
@@ -165,8 +163,8 @@ if __name__ == "__main__":
 
                 celossavg = celoss / r
                 acc_test = test_ca.get()
-                writer.add_scalar("train loss", celossavg, epoch_id)
-                writer.add_scalar("acc_train", acc_test, epoch_id)
+                print("acc_train", acc_test, epoch_id)
+                print("train loss", celossavg, epoch_id)
 
                 r = 0
                 celoss = 0
@@ -186,7 +184,5 @@ if __name__ == "__main__":
 
                 celossavg = celoss / r
                 acc_test = test_ca.get()
-                writer.add_scalar("test loss", celossavg, epoch_id)
-                writer.add_scalar("acc_test", acc_test, epoch_id)
-
-    writer.close()
+                print("test loss", celossavg, epoch_id)
+                print("acc_test", acc_test, epoch_id)
