@@ -1,5 +1,15 @@
 # YOLO26n 血细胞智能检测系统
 
+## 交接（2026-10-13，明日继续）
+
+- **工作分支：**`cell-26`；阶段提交：`6b45c41`。今天的代码与结果说明已推送。继续工作时留在此分支，不切换或修改其他分支。
+- **数据集：**现成的 `dataset1/mixed_blood_cell.yaml`，train/val/test 为 1116/310/198 张。不要解压、重建、改写或提交 `dataset1/`。
+- **已完成：**按 `doc.txt` 的消融要求训练并在同一 mixed test 集评估 YOLO26n baseline、focal、cbam、dams、cf 五组；Focal Loss 已适配 YOLO26 的 E2E loss。全组配置为 imgsz=640、Adam、lr0=0.001、batch=16、最多 100 epochs、全网微调、patience=20、Mosaic=0.5、close-mosaic=15、HSV-S/V=0.3/0.2、seed=0。
+- **测试集 ALL 指标（P / R / mAP@0.5 / mAP@0.5:0.95）：**baseline `0.9112 / 0.9346 / 0.9669 / 0.8016`；focal `0.8892 / 0.9140 / 0.9529 / 0.8051`；cbam `0.9197 / 0.9351 / 0.9667 / 0.7984`；dams `0.9224 / 0.9378 / 0.9700 / 0.8045`；cf `0.9046 / 0.9071 / 0.9519 / 0.7960`。当前最佳为 **dams**；CF 尚未优于 baseline，不能把其他变体结果称作 CF 结果。
+- **本机忽略产物：**五组权重位于 `weights/yolo26n_mixed.pt`、`weights/yolo26n_ab_{focal,cbam,dams,cf}.pt`；训练曲线 CSV 位于对应的 `results/*_train/results.csv`。这些路径受 `.gitignore` 忽略，**不要 `git add -f`，也不要提交权重、CSV、数据集或临时输出**。上面完整的 RBC/WBC 指标表见下方“YOLO26n 超参数实验”。
+- **明日优先事项：**仅继续改进 `cf`，从当前 CF 权重 `weights/yolo26n_ab_cf.pt` 出发，先用验证集测试 Focal α（建议 0.50、0.75；γ=2.0），分别使用新的 `--out` 名称和 `--skip-test`，避免相互覆盖或用 test 选超参数；按验证集选择后，再对最终候选做一次统一 test 评估。比较 Focal 是否确实有助于 RBC/WBC 后，再决定是否调 γ 或模块组合。
+- **复现实验：**`scripts/main.sh` 已改为只检查并读取现有 mixed YAML，不再解压或重建数据；它会重新训练全部五组并写入同名本地忽略产物，继续跑 CF 单项调参时不要无必要地重跑它。
+
 基于 YOLO26n 的血细胞检测训练与演示系统，保留 CBAM、Focal Loss、DAMS-Net 等可选改进模块；历史 YOLOv8 实验文档见 `doc.txt`。
 
 - 模型变体：`baseline`（纯 YOLO26n，默认）/ `focal`（YOLO26n + Focal Loss）/ `cbam`（YOLO26n + CBAM）/ `dams`（YOLO26n + DAMS-Net）/ `cf`（YOLO26n + CBAM + Focal Loss + DAMS-Net）
