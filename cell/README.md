@@ -8,7 +8,7 @@
 - **测试集 ALL 指标（P / R / mAP@0.5 / mAP@0.5:0.95）：**baseline `0.9112 / 0.9346 / 0.9669 / 0.8016`；focal `0.8892 / 0.9140 / 0.9529 / 0.8051`；cbam `0.9197 / 0.9351 / 0.9667 / 0.7984`；dams `0.9224 / 0.9378 / 0.9700 / 0.8045`；cf `0.9046 / 0.9071 / 0.9519 / 0.7960`。当前最佳为 **dams**；CF 尚未优于 baseline，不能把其他变体结果称作 CF 结果。
 - **本机忽略产物：**五组权重位于 `weights/yolo26n_mixed.pt`、`weights/yolo26n_ab_{focal,cbam,dams,cf}.pt`；训练曲线 CSV 位于对应的 `results/*_train/results.csv`。这些路径受 `.gitignore` 忽略，**不要 `git add -f`，也不要提交权重、CSV、数据集或临时输出**。上面完整的 RBC/WBC 指标表见下方“YOLO26n 超参数实验”。
 - **明日优先事项：**仅继续改进 `cf`，从当前 CF 权重 `weights/yolo26n_ab_cf.pt` 出发，先用验证集测试 Focal α（建议 0.50、0.75；γ=2.0），分别使用新的 `--out` 名称和 `--skip-test`，避免相互覆盖或用 test 选超参数；按验证集选择后，再对最终候选做一次统一 test 评估。比较 Focal 是否确实有助于 RBC/WBC 后，再决定是否调 γ 或模块组合。
-- **复现实验：**`scripts/main.sh` 已改为只检查并读取现有 mixed YAML，不再解压或重建数据；它会重新训练全部五组并写入同名本地忽略产物，继续跑 CF 单项调参时不要无必要地重跑它。
+- **复现实验：**`scripts/main.sh` 保留原有 `dataset1.7z` SHA-256 校验及校验通过后的解压流程；之后用统一超参数重新训练全部五组并写入本地忽略产物。继续跑 CF 单项调参时不要无必要地重跑它。
 
 基于 YOLO26n 的血细胞检测训练与演示系统，保留 CBAM、Focal Loss、DAMS-Net 等可选改进模块；历史 YOLOv8 实验文档见 `doc.txt`。
 
@@ -152,7 +152,7 @@ Focal Loss 已适配 YOLO26 的端到端检测损失：通过 `E2ELoss` 分别�
 
 本轮最佳总体变体是 **+DAMS-Net**：相比 YOLO26n baseline，mAP@0.5 +0.0031、mAP@0.5:0.95 +0.0029、Precision +0.0112、Recall +0.0032；也高于历史 YOLOv8n baseline 的四项指标。**当前 CF 组合没有超过 baseline/DAMS**，Focal Loss 是组合中主要的性能回退因素；因此不能把 baseline 或 DAMS 的结果称为 CF 结果。后续将继续调优 CF 的 Focal Loss 权重，当前结果仅作为阶段性消融结论。
 
-训练权重与逐轮 CSV 属于本地忽略产物（`cell/weights/`、`cell/results/`），不纳入 Git 提交。`scripts/main.sh` 使用独立 `yolo26n_ab_*` 名称，避免覆盖历史 YOLOv8 权重；要求本地已有 `dataset1/mixed_blood_cell.yaml`，不会解压或重建数据集。训练阶段可用 `--skip-test`，全部模型训练结束后再统一测试。
+训练权重与逐轮 CSV 属于本地忽略产物（`cell/weights/`、`cell/results/`），不纳入 Git 提交。`scripts/main.sh` 使用独立 `yolo26n_ab_*` 名称，避免覆盖历史 YOLOv8 权重；脚本先校验 `dataset1.7z` 的 SHA-256，校验通过后按原流程解压，再训练。训练阶段可用 `--skip-test`，全部模型训练结束后再统一测试。
 
 ## Web 检测系统 (app.py)
 
