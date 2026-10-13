@@ -7,8 +7,7 @@ python train.py \
   --batch 16 \
   --gamma 2.0 \
   --alpha 0.25 \
-  --freeze-epochs 10 \
-  --unfreeze-lr 0.0001 \
+  --freeze-epochs 0 \
   --dataset mixed \
   --imgsz 640 \
   --optimizer Adam \
@@ -16,13 +15,13 @@ python train.py \
   --lrf 0.01 \
   --weight-decay 0.0005 \
   --warmup-epochs 3 \
-  --mosaic 1.0 \
-  --close-mosaic 10 \
+  --mosaic 0.5 \
+  --close-mosaic 15 \
   --degrees 180 \
   --flipud 0.5 \
   --fliplr 0.5 \
   --hsv-h 0.015 \
-  --hsv-s 0.7 \
-  --hsv-v 0.4 \
-  --patience 10 \
+  --hsv-s 0.3 \
+  --hsv-v 0.2 \
+  --patience 20 \
   --seed 0

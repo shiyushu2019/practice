@@ -113,20 +113,20 @@ CF-YOLOv8 实测 `mAP@0.5 = 0.9562（>0.947）`、`Precision = 0.9067（>90%，�
 > 而文档假设的“WBC 因长尾难学”在本数据集上不成立（WBC 已 ≈0.99）。
 > 绝对指标达标依靠 2 类口径 + mixed 数据扩充；Focal 采用标准 α-balanced 形式（正样本 α=0.25、负样本 0.75）。
 
-## YOLO26n 训练结果
+## YOLO26n 超参数实验（mixed 2 类 · BCCD + TXL-PBC）
 
-训练命令：`python train.py --variant baseline --device 4 --epochs 100 --batch 16 --dataset mixed --out yolo26n_mixed`。
-使用 YOLO26n COCO 预训练权重，输入尺寸 640；mixed 数据集包含 1116 张训练图、310 张验证图和 198 张测试图。
-训练先冻结 10 轮，再解冻微调；第二阶段因连续 10 轮无提升于第 56 轮早停（总计训练 66 轮）。
+所有实验使用相同的 mixed 数据集（1116 张训练图、310 张验证图、198 张测试图）和 YOLO26n COCO 预训练权重，输入尺寸 640；没有更改数据集。初始基线先冻结 10 轮，后续 A/B 实验改为全网微调 100 轮上限、Adam、lr0=0.001、batch16、patience=20、HSV-S/V=0.3/0.2。模型依据验证集选择，最终指标来自测试集。
 
-| 测试集指标 | 结果 |
-|---|---:|
-| mAP@0.5 | 0.9454 |
-| mAP@0.5:0.95 | 0.7748 |
-| Precision | 0.8971 |
-| Recall | 0.8979 |
+| 实验 | 超参数差异 | 测试 mAP@0.5 | 测试 mAP@0.5:0.95 | Precision | Recall | 最佳验证 mAP@0.5 / mAP@0.5:0.95 |
+|---|---|---:|---:|---:|---:|---:|
+| YOLOv8n 原 baseline | 原始配置 | 0.9633 | 0.7753 | 0.9037 | 0.9370 | — |
+| YOLO26n 初始 baseline | 冻结 10 轮、Mosaic 1.0、HSV-S/V 0.7/0.4 | 0.9454 | 0.7748 | 0.8971 | 0.8979 | 0.9608 / 0.8083 |
+| YOLO26n 实验 A（当前权重） | 不冻结、Mosaic 0.5、HSV-S/V 0.3/0.2 | **0.9669** | 0.8016 | 0.9112 | **0.9346** | **0.9801 / 0.8403** |
+| YOLO26n 实验 B | 与 A 相同，Mosaic 关闭 | 0.9646 | **0.8034** | **0.9232** | 0.9253 | 0.9755 / 0.8341 |
 
-最佳权重：`weights/yolo26n_mixed.pt`；第二阶段训练记录：`results/yolo26n_mixed_train/results.csv`。
+A 相比初始 YOLO26n baseline，四项测试指标均有提升：mAP@0.5 **+0.0215**、mAP@0.5:0.95 **+0.0268**、Precision **+0.0141**、Recall **+0.0367**。相较 YOLOv8n baseline，A 的 mAP@0.5、mAP@0.5:0.95 和 Precision 分别提升 0.0036、0.0263、0.0075，Recall 低 0.0024。B 的高 IoU mAP 和 Precision 更高，A 的 mAP@0.5 和 Recall 更高；当前采用 A 作为默认权重以平衡检测率和综合指标。
+
+当前默认权重：`weights/yolo26n_mixed.pt`（实验 A）；实验 B 权重：`weights/yolo26n_tune_b.pt`。实验记录：`results/yolo26n_tune_a_train/results.csv`、`results/yolo26n_tune_b_train/results.csv`。初始 YOLO26n 权重训练记录保留在 `results/yolo26n_mixed_train/results.csv`。
 
 ## Web 检测系统 (app.py)
 
@@ -202,7 +202,7 @@ python train.py --variant baseline --freeze-epochs 10 --device 0
 | `--batch` | Batch size | `16` |
 | `--gamma` | Focal Loss γ | `2.0` |
 | `--alpha` | Focal Loss α | `0.25` |
-| `--freeze-epochs` | 冻结主干训练检测头的轮数 | `10`（文档迁移学习：先冻结后解冻） |
+| `--freeze-epochs` | 冻结主干训练检测头的轮数 | `0`（全网微调） |
 | `--freeze-layers` | 阶段 1 冻结的 backbone 层数 | `10` |
 | `--unfreeze-lr` | 解冻后精调阶段学习率 | `0.0001` |
 | `--out` | 输出权重文件名 | `weights/<variant>.pt` |
@@ -215,15 +215,15 @@ python train.py --variant baseline --freeze-epochs 10 --device 0
 | `--weight-decay` | 权重衰减 | `0.0005` |
 | `--warmup-epochs` | warmup 轮数 | `3` |
 | `--no-cos-lr` | 关闭余弦学习率退火 | 关闭 |
-| `--mosaic` | Mosaic 增强概率（0 关闭） | `1.0` |
-| `--close-mosaic` | 最后 N 轮关闭 Mosaic | `10` |
+| `--mosaic` | Mosaic 增强概率（0 关闭） | `0.5` |
+| `--close-mosaic` | 最后 N 轮关闭 Mosaic | `15` |
 | `--degrees` | 随机旋转角度范围 | `180` |
 | `--flipud` | 上下翻转概率 | `0.5` |
 | `--fliplr` | 左右翻转概率 | `0.5` |
 | `--hsv-h` | HSV-H 扰动 | `0.015` |
-| `--hsv-s` | HSV-S 扰动 | `0.7` |
-| `--hsv-v` | HSV-V 扰动 | `0.4` |
-| `--patience` | 早停耐心轮数 | `10` |
+| `--hsv-s` | HSV-S 扰动 | `0.3` |
+| `--hsv-v` | HSV-V 扰动 | `0.2` |
+| `--patience` | 早停耐心轮数 | `20` |
 | `--seed` | 随机种子 | `0` |
 | `--no-deterministic` | 关闭确定性训练 | 关闭 |
 | `--no-amp` | 关闭混合精度 AMP | 关闭 |
@@ -238,13 +238,13 @@ python train.py --variant baseline --freeze-epochs 10 --device 0
 | Focal γ | `--gamma` | 2.0 | 2.0 |
 | Focal α | `--alpha` | 0.25 | 0.25 |
 | 数据集 | `--dataset bccd/txl/mixed` | mixed | BCCD |
-| 先冻结后解冻 | `--freeze-epochs` / `--freeze-layers` / `--unfreeze-lr` | 10 / 10 / 0.0001 | 先冻结主干再解冻精调 |
+| 全网微调 | `--freeze-epochs` | 0 | 不冻结 |
 
 ```bash
 # 仅 BCCD 数据集
 python train.py --variant baseline --dataset bccd --device 0
-# 完整迁移学习流程（先冻结 10 层训检测头，再解冻全网低 lr 精调）
-python train.py --variant baseline --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001 --device 0
+# 可选：冻结前 10 层训练检测头，再进行全网微调
+python train.py --variant baseline --freeze-epochs 10 --freeze-layers 10 --device 0
 ```
 
 ### inf.py —— 推理脚本（单图或目录）

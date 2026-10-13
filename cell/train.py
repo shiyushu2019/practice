@@ -14,7 +14,7 @@
 
 训练完成后 best 权重统一保存到 weights/<variant>.pt。
 
-默认使用 COCO 预训练 YOLO26n 权重，先冻结 backbone 训练检测头，再解冻全网微调。
+默认使用 COCO 预训练 YOLO26n 权重，全网微调；降低 Mosaic 与颜色扰动，适配血细胞图像。
 
 说明: 之前版本的 CBAM 在原训练脚本里对 model.model 的原地修改会被 ultralytics 在
 model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 DetectionTrainer.get_model()
@@ -209,7 +209,7 @@ def main():
                     help="CBAM 通道注意力 MLP 缩减比 (文档未指定, 默认 8)")
     ap.add_argument("--dams", action="store_true",
                     help="追加 DAMS-Net 动态多尺度融合 (--variant cf 默认已含; 可叠加到 baseline/focal/cbam 做消融)")
-    ap.add_argument("--freeze-epochs", type=int, default=10,
+    ap.add_argument("--freeze-epochs", type=int, default=0,
                     help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 先冻结后解冻)")
     ap.add_argument("--freeze-layers", type=int, default=10,
                     help="阶段1冻结的 backbone 层数 (默认冻结前 10 层)")
@@ -227,15 +227,15 @@ def main():
     ap.add_argument("--weight-decay", type=float, default=0.0005, help="权重衰减")
     ap.add_argument("--warmup-epochs", type=float, default=3, help="warmup 轮数")
     ap.add_argument("--no-cos-lr", action="store_true", help="关闭余弦学习率退火")
-    ap.add_argument("--mosaic", type=float, default=1.0, help="Mosaic 增强概率 (0 关闭)")
-    ap.add_argument("--close-mosaic", type=int, default=10, help="最后 N 轮关闭 Mosaic")
+    ap.add_argument("--mosaic", type=float, default=0.5, help="Mosaic 增强概率 (0 关闭)")
+    ap.add_argument("--close-mosaic", type=int, default=15, help="最后 N 轮关闭 Mosaic")
     ap.add_argument("--degrees", type=float, default=180, help="随机旋转角度范围")
     ap.add_argument("--flipud", type=float, default=0.5, help="上下翻转概率")
     ap.add_argument("--fliplr", type=float, default=0.5, help="左右翻转概率")
     ap.add_argument("--hsv-h", type=float, default=0.015, help="HSV-H 扰动")
-    ap.add_argument("--hsv-s", type=float, default=0.7, help="HSV-S 扰动")
-    ap.add_argument("--hsv-v", type=float, default=0.4, help="HSV-V 扰动")
-    ap.add_argument("--patience", type=int, default=10, help="早停耐心轮数")
+    ap.add_argument("--hsv-s", type=float, default=0.3, help="HSV-S 扰动")
+    ap.add_argument("--hsv-v", type=float, default=0.2, help="HSV-V 扰动")
+    ap.add_argument("--patience", type=int, default=20, help="早停耐心轮数")
     ap.add_argument("--seed", type=int, default=0, help="随机种子")
     ap.add_argument("--no-deterministic", action="store_true", help="关闭确定性训练")
     ap.add_argument("--no-amp", action="store_true", help="关闭混合精度 (AMP)")
