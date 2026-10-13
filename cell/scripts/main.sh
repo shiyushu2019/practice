@@ -6,6 +6,19 @@ set -e
 DEVICE="${DEVICE:-0}"
 DATA_YAML="dataset1/mixed_blood_cell.yaml"
 EPOCHS=100
+DATASET_ARCHIVE="dataset1.7z"
+DATASET_SHA256="1742c29fe25727ca576046e9100e40ffcedc173b9d5b69bf92e5f70b1ae6d9f5"
+
+if [ ! -f "$DATASET_ARCHIVE" ]; then
+  echo "缺少数据集归档 $DATASET_ARCHIVE，无法验证 SHA-256。" >&2
+  exit 1
+fi
+
+if [ "$(sha256sum "$DATASET_ARCHIVE" | cut -d' ' -f1)" != "$DATASET_SHA256" ]; then
+  echo "$DATASET_ARCHIVE SHA-256 校验失败；拒绝训练。" >&2
+  exit 1
+fi
+echo "$DATASET_ARCHIVE SHA-256 校验通过。"
 
 if [ ! -f "$DATA_YAML" ]; then
   echo "缺少现成数据集配置 $DATA_YAML；请先准备 mixed 数据集。此脚本不会修改或解压数据集。" >&2
