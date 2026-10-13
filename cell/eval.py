@@ -29,7 +29,7 @@ TEMP_DIR = os.path.join(HERE, "temp")
 DOC_PATH = os.path.join(HERE, "doc.txt")
 
 MODELS = {
-    "baseline": os.path.join(WEIGHTS_DIR, "baseline.pt"),
+    "baseline": os.path.join(WEIGHTS_DIR, "yolo26n_mixed.pt"),
     "focal": os.path.join(WEIGHTS_DIR, "focal.pt"),
     "cbam": os.path.join(WEIGHTS_DIR, "cbam.pt"),
     "dams": os.path.join(WEIGHTS_DIR, "dams.pt"),

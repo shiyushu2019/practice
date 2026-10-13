@@ -1,29 +1,20 @@
-"""统一训练脚本 —— 严格按实验文档实现 CBAM + Focal Loss + DAMS-Net。
+"""统一训练脚本 —— 以 YOLO26n 为基线训练血细胞检测模型。
 
 用法:
-    python train.py --variant baseline          # 纯 YOLOv8n (对照)
-    python train.py --variant cbam              # YOLOv8n + CBAM (嵌入 backbone ConvModule)
-    python train.py --variant focal             # YOLOv8n + Focal Loss (消融: +Focal Loss)
-    python train.py --variant dams              # YOLOv8n + DAMS-Net (消融: +DAMS-Net)
-    python train.py --variant cf                # 完整 CF-YOLOv8 (CBAM + Focal Loss + DAMS-Net)
-    python train.py --variant cf --batch 16 --epochs 100
-    python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001  # 先冻结后解冻
-    python train.py --variant cf --gamma 2.0     # 调 Focal Loss gamma (文档要求 2.0)
-    python train.py --variant cf --imgsz 640 --optimizer Adam --lr0 0.001 --mosaic 0 --device 0
+    python train.py --variant baseline           # 纯 YOLO26n
+    python train.py --variant cbam               # YOLO26n + CBAM
+    python train.py --variant focal              # YOLO26n + Focal Loss
+    python train.py --variant dams               # YOLO26n + DAMS-Net
+    python train.py --variant cf                 # YOLO26n + CBAM + Focal Loss + DAMS-Net
+    python train.py --variant baseline --batch 16 --epochs 100
+    python train.py --variant baseline --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001
     python train.py --dataset bccd                     # 仅 BCCD 数据集
     python train.py --dataset txl                      # 仅 TXL-PBC 数据集
-    python train.py --dataset mixed                    # 混合两个数据集 (默认)
+    python train.py --dataset mixed                   # 混合两个数据集 (默认)
 
 训练完成后 best 权重统一保存到 weights/<variant>.pt。
 
-对应文档技术路线:
-1. Backbone 的 ConvModule 中嵌入 CBAM 注意力模块 (通道 + 空间双重注意力)。
-2. 替换分类损失函数为 Focal Loss, 配置 alpha=0.25、gamma=2.0
-   (仅作用于分类分支, box / dfl 损失保持不变)。
-3. Adam 优化器 (文档实际采用) + 余弦退火, 初始学习率 0.001、batch size 16、
-   早停 patience 10, 训练 100 轮。
-4. 迁移学习流程: 先冻结主干训练检测头, 再解冻全网低学习率精调
-   (默认 --freeze-epochs 10; --freeze-layers 10 冻结主干; --unfreeze-lr 0.0001)。
+默认使用 COCO 预训练 YOLO26n 权重，先冻结 backbone 训练检测头，再解冻全网微调。
 
 说明: 之前版本的 CBAM 在原训练脚本里对 model.model 的原地修改会被 ultralytics 在
 model.train() 内部按 yaml 重建模型时丢弃。本脚本通过自定义 DetectionTrainer.get_model()
@@ -50,7 +41,7 @@ from components.dataset_selection import resolve_yaml, ensure_dataset_ready  # n
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEIGHTS_DIR = os.path.join(HERE, "weights")
 RESULTS_DIR = os.path.join(HERE, "results")
-PRETRAINED = os.path.join(WEIGHTS_DIR, "yolov8n.pt")
+PRETRAINED = os.path.join(WEIGHTS_DIR, "yolo26n.pt")
 
 
 def inject_cbam(model, reduction=8):
@@ -206,8 +197,8 @@ def run_phase(overrides, args, variant, dams=False):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="统一训练脚本 (CBAM/Focal 按文档实现)")
-    ap.add_argument("--variant", default="cf", choices=["baseline", "cbam", "focal", "dams", "cf"])
+    ap = argparse.ArgumentParser(description="YOLO26n 血细胞检测训练脚本")
+    ap.add_argument("--variant", default="baseline", choices=["baseline", "cbam", "focal", "dams", "cf"])
     ap.add_argument("--device", default="0",
                     help="GPU 编号 (0-7 或 cpu; 默认 0)")
     ap.add_argument("--epochs", type=int, default=100)
@@ -221,7 +212,7 @@ def main():
     ap.add_argument("--freeze-epochs", type=int, default=10,
                     help="冻结主干训练检测头的轮数 (0 表示不冻结; 文档迁移学习: 先冻结后解冻)")
     ap.add_argument("--freeze-layers", type=int, default=10,
-                    help="阶段1冻结的 backbone 层数 (yolov8n 主干共 10 层, 默认冻结 10)")
+                    help="阶段1冻结的 backbone 层数 (默认冻结前 10 层)")
     ap.add_argument("--unfreeze-lr", type=float, default=0.0001,
                     help="解冻后精调阶段的学习率 lr0 (文档: 低学习率精调)")
     ap.add_argument("--out", default=None, help="输出权重文件名 (默认 weights/<variant>.pt)")

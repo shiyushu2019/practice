@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-"""CF-YOLOv8 血细胞检测模型插件。
+"""YOLO26n 血细胞检测模型插件。
 
-对应 doc.txt 中的改进模型 CF-YOLOv8：
-    - 在 Backbone 的 ConvModule 中嵌入 CBAM 注意力模块
-    - 分类损失替换为 Focal Loss (α=0.25, γ=2.0)
+默认加载训练好的 YOLO26n 血细胞检测权重。
 类别: 0=RBC(红细胞) 1=WBC(白细胞)
 """
 import os
@@ -24,7 +22,7 @@ class CellDetector:
     CLASS_COLORS = {"RBC": "#e74c3c", "WBC": "#3498db"}
 
     def __init__(self, weights=None, device="0", conf=0.25):
-        self.WEIGHTS = weights or os.path.join(PROJECT_ROOT, "weights", "cf.pt")
+        self.WEIGHTS = weights or os.path.join(PROJECT_ROOT, "weights", "yolo26n_mixed.pt")
         self.DEFAULT_CONF = conf
         self.device = device
         self.model = None
@@ -50,12 +48,12 @@ class CellDetector:
             self.device = str(self.device)
         print(f"🩸 加载模型: {self.WEIGHTS}  (device={self.device})")
         self.model = YOLO(self.WEIGHTS)
-        print("✅ CF-YOLOv8 加载成功！")
+        print("✅ YOLO26n 加载成功！")
         return self.model
 
     def get_model_info(self) -> dict:
         return {
-            "arch": "CF-YOLOv8 (YOLOv8n + CBAM + Focal Loss + DAMS-Net)",
+            "arch": "YOLO26n",
             "classes": self.CLASS_NAMES,
             "classes_cn": [self.CLASS_CN[c] for c in self.CLASS_NAMES],
             "weights": os.path.basename(self.WEIGHTS),

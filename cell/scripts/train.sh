@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 python train.py \
-  --variant cf \
+  --variant baseline \
+  --out yolo26n_mixed \
   --device 0 \
   --epochs 100 \
   --batch 16 \

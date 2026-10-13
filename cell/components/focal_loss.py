@@ -58,7 +58,7 @@ class FocalDetectionModel(DetectionModel):
     criterion 仍然在首次 loss() 调用时惰性创建, 设备与模型一致。
     """
 
-    def __init__(self, cfg="yolov8n.yaml", ch=3, nc=None, verbose=True,
+    def __init__(self, cfg="yolo26n.yaml", ch=3, nc=None, verbose=True,
                  gamma: float = 2.0, alpha: float = 0.25):
         super().__init__(cfg, ch=ch, nc=nc, verbose=verbose)
         self.focal_gamma = gamma
