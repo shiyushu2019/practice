@@ -1,41 +1,32 @@
 #!/usr/bin/env bash
-# 全量训练 + 验证 + 推理 (数据集: 混合 BCCD + TXL-PBC; GPU 用 DEVICE 环境变量指定, 默认 0)
-# YOLO26n 消融五组: baseline / +Focal Loss / +CBAM / +DAMS-Net / +CBAM+Focal+DAMS; 各阶段需依次执行, 不要并行。
+# 全量训练 + 验证 (使用已准备好的 mixed 数据集; 不解压或重建数据)
+# YOLO26n 消融五组: baseline / +Focal Loss / +CBAM / +DAMS-Net / +CBAM+Focal+DAMS
 set -e
 
 DEVICE="${DEVICE:-0}"
-DATASET="mixed"
+DATA_YAML="dataset1/mixed_blood_cell.yaml"
 EPOCHS=100
 
-HASH="1742c29fe25727ca576046e9100e40ffcedc173b9d5b69bf92e5f70b1ae6d9f5"
-if [ "$(sha256sum ./dataset1.7z 2>/dev/null | cut -d' ' -f1)" = "$HASH" ]; then
-    echo "dataset1.7z哈希匹配, 正在解压"
-    7z x -y dataset1.7z -o. >/dev/null
-else
-    echo "哈希不匹配"
-    exit 1
+if [ ! -f "$DATA_YAML" ]; then
+  echo "缺少现成数据集配置 $DATA_YAML；请先准备 mixed 数据集。此脚本不会修改或解压数据集。" >&2
+  exit 1
 fi
 
-# 阶段1: YOLO26n 基线对照
-python train.py --variant baseline --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
+COMMON_ARGS=(
+  --epochs "$EPOCHS" --batch 16 --dataset mixed --data "$DATA_YAML"
+  --device "$DEVICE" --freeze-epochs 0 --optimizer Adam --lr0 0.001
+  --lrf 0.01 --weight-decay 0.0005 --warmup-epochs 3
+  --mosaic 0.5 --close-mosaic 15 --degrees 180 --flipud 0.5 --fliplr 0.5
+  --hsv-h 0.015 --hsv-s 0.3 --hsv-v 0.2 --patience 20 --seed 0 --skip-test
+)
 
-# 阶段2: YOLO26n + Focal Loss (消融)
-python train.py --variant focal --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
+# Train each YOLO26n ablation without overwriting legacy YOLOv8 checkpoints.
+python train.py --variant baseline --out yolo26n_ab_baseline "${COMMON_ARGS[@]}"
+python train.py --variant focal --out yolo26n_ab_focal --gamma 2.0 --alpha 0.25 "${COMMON_ARGS[@]}"
+python train.py --variant cbam --out yolo26n_ab_cbam "${COMMON_ARGS[@]}"
+python train.py --variant dams --out yolo26n_ab_dams "${COMMON_ARGS[@]}"
+python train.py --variant cf --out yolo26n_ab_cf --gamma 2.0 --alpha 0.25 "${COMMON_ARGS[@]}"
 
-# 阶段3: YOLO26n + CBAM
-python train.py --variant cbam --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
-
-# 阶段4: YOLO26n + DAMS-Net (消融)
-python train.py --variant dams --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
-
-# 阶段5: 完整改进模型 (YOLO26n + CBAM + Focal + DAMS-Net)
-python train.py --variant cf --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE" \
-  --gamma 2.0 --alpha 0.25 --batch 16 --freeze-epochs 10
-
-# 阶段6: 在混合测试集上验证所有变体
-python eval.py --split test --dataset "$DATASET" --device "$DEVICE" \
-  --weights weights/baseline.pt,weights/focal.pt,weights/cbam.pt,weights/dams.pt,weights/cf.pt
-
-# 阶段7: FPS 基准 + 保存可视化结果图 (--benchmark 不落盘, 需分开调用)
-python inf.py --dataset "$DATASET" --weights weights/cf.pt --device "$DEVICE" --benchmark
-python inf.py --dataset "$DATASET" --weights weights/cf.pt --device "$DEVICE" --save
+# Compare all variants on the same held-out test set.
+python eval.py --split test --data "$DATA_YAML" --device "$DEVICE" --no-plots \
+  --weights weights/yolo26n_ab_baseline.pt,weights/yolo26n_ab_focal.pt,weights/yolo26n_ab_cbam.pt,weights/yolo26n_ab_dams.pt,weights/yolo26n_ab_cf.pt

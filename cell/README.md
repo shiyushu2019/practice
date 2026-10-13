@@ -115,20 +115,34 @@ CF-YOLOv8 实测 `mAP@0.5 = 0.9562（>0.947）`、`Precision = 0.9067（>90%，�
 
 ## YOLO26n 超参数实验（mixed 2 类 · BCCD + TXL-PBC）
 
-所有实验使用相同的 mixed 数据集（1116 张训练图、310 张验证图、198 张测试图）和 YOLO26n COCO 预训练权重，输入尺寸 640；没有更改数据集。初始基线先冻结 10 轮，后续 A/B 实验改为全网微调 100 轮上限、Adam、lr0=0.001、batch16、patience=20、HSV-S/V=0.3/0.2。模型依据验证集选择，最终指标来自测试集。
+本轮按 `doc.txt` 与 `scripts/main.sh` 重新完成五组 YOLO26n 消融：baseline、+Focal Loss、+CBAM、+DAMS-Net、CF（CBAM + Focal Loss + DAMS-Net）。所有变体使用相同的 mixed 数据集（1116 张训练图、310 张验证图、198 张测试图）、COCO 预训练权重和训练配置：全网微调、640 输入、Adam、lr0=0.001、batch=16、最多 100 轮、patience=20、Mosaic=0.5、HSV-S/V=0.3/0.2、seed=0。训练 checkpoint 按验证集 mAP@0.5 选优，以下为统一测试集评估；没有更改数据集。
 
-**重要：**下表中 YOLO26n 初始 baseline、实验 A、实验 B 全部是 `--variant baseline`，只训练了纯 YOLO26n；此前没有训练或评估 YOLO26n 的 `focal`、`cbam`、`dams`、`cf` 变体。这些数字不是完整消融实验结果，也不能代表 CF 模型。
+Focal Loss 已适配 YOLO26 的端到端检测损失：通过 `E2ELoss` 分别包裹 one-to-many 与 one-to-one 检测分支，并只替换分类 BCE 项。
 
-| 实验 | 超参数差异 | 测试 mAP@0.5 | 测试 mAP@0.5:0.95 | Precision | Recall | 最佳验证 mAP@0.5 / mAP@0.5:0.95 |
-|---|---|---:|---:|---:|---:|---:|
-| YOLOv8n 原 baseline | 原始配置 | 0.9633 | 0.7753 | 0.9037 | 0.9370 | — |
-| YOLO26n 初始 baseline | 冻结 10 轮、Mosaic 1.0、HSV-S/V 0.7/0.4 | 0.9454 | 0.7748 | 0.8971 | 0.8979 | 0.9608 / 0.8083 |
-| YOLO26n 实验 A（当前权重） | 不冻结、Mosaic 0.5、HSV-S/V 0.3/0.2 | **0.9669** | 0.8016 | 0.9112 | **0.9346** | **0.9801 / 0.8403** |
-| YOLO26n 实验 B | 与 A 相同，Mosaic 关闭 | 0.9646 | **0.8034** | **0.9232** | 0.9253 | 0.9755 / 0.8341 |
+### ALL 测试指标
 
-A 相比初始 YOLO26n baseline，四项测试指标均有提升：mAP@0.5 **+0.0215**、mAP@0.5:0.95 **+0.0268**、Precision **+0.0141**、Recall **+0.0367**。相较 YOLOv8n baseline，A 的 mAP@0.5、mAP@0.5:0.95 和 Precision 分别提升 0.0036、0.0263、0.0075，Recall 低 0.0024。B 的高 IoU mAP 和 Precision 更高，A 的 mAP@0.5 和 Recall 更高；当前采用 A 作为默认权重以平衡检测率和综合指标。
+| YOLO26n 变体 | Precision | Recall | mAP@0.5 | mAP@0.5:0.95 |
+|---|---:|---:|---:|---:|
+| baseline | 0.9112 | 0.9346 | 0.9669 | 0.8016 |
+| +Focal Loss | 0.8892 | 0.9140 | 0.9529 | **0.8051** |
+| +CBAM | 0.9197 | 0.9351 | 0.9667 | 0.7984 |
+| +DAMS-Net | **0.9224** | **0.9378** | **0.9700** | 0.8045 |
+| CF（CBAM + Focal + DAMS） | 0.9046 | 0.9071 | 0.9519 | 0.7960 |
+| YOLOv8n 原 baseline（历史参考） | 0.9037 | 0.9370 | 0.9633 | 0.7753 |
 
-当前默认权重：`weights/yolo26n_mixed.pt`（实验 A）；实验 B 权重：`weights/yolo26n_tune_b.pt`。实验记录：`results/yolo26n_tune_a_train/results.csv`、`results/yolo26n_tune_b_train/results.csv`。初始 YOLO26n 权重训练记录保留在 `results/yolo26n_mixed_train/results.csv`。
+### RBC / WBC 测试指标（Precision / Recall / mAP@0.5）
+
+| YOLO26n 变体 | RBC | WBC |
+|---|---|---|
+| baseline | 0.8543 / 0.8692 / 0.9423 | 0.9681 / 1.0000 / 0.9915 |
+| +Focal Loss | 0.8327 / 0.8429 / 0.9185 | 0.9457 / 0.9851 / 0.9873 |
+| +CBAM | 0.8541 / 0.8733 / 0.9407 | 0.9853 / 0.9969 / 0.9928 |
+| +DAMS-Net | 0.8595 / 0.8817 / 0.9469 | 0.9853 / 0.9940 / 0.9931 |
+| CF（CBAM + Focal + DAMS） | 0.8383 / 0.8224 / 0.9140 | 0.9709 / 0.9918 / 0.9898 |
+
+本轮最佳总体变体是 **+DAMS-Net**：相比 YOLO26n baseline，mAP@0.5 +0.0031、mAP@0.5:0.95 +0.0029、Precision +0.0112、Recall +0.0032；也高于历史 YOLOv8n baseline 的四项指标。**当前 CF 组合没有超过 baseline/DAMS**，Focal Loss 是组合中主要的性能回退因素；因此不能把 baseline 或 DAMS 的结果称为 CF 结果。后续将继续调优 CF 的 Focal Loss 权重，当前结果仅作为阶段性消融结论。
+
+训练权重与逐轮 CSV 属于本地忽略产物（`cell/weights/`、`cell/results/`），不纳入 Git 提交。`scripts/main.sh` 使用独立 `yolo26n_ab_*` 名称，避免覆盖历史 YOLOv8 权重；要求本地已有 `dataset1/mixed_blood_cell.yaml`，不会解压或重建数据集。训练阶段可用 `--skip-test`，全部模型训练结束后再统一测试。
 
 ## Web 检测系统 (app.py)
 

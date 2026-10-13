@@ -240,6 +240,8 @@ def main():
     ap.add_argument("--no-deterministic", action="store_true", help="关闭确定性训练")
     ap.add_argument("--no-amp", action="store_true", help="关闭混合精度 (AMP)")
     ap.add_argument("--no-plots", action="store_true", help="不保存训练曲线图")
+    ap.add_argument("--skip-test", action="store_true",
+                    help="训练结束后跳过测试集评估 (便于先用验证集选择超参数)")
     args = ap.parse_args()
 
     # 解析数据集 yaml (--data 优先, 否则按 --dataset 选择, 默认 mixed)
@@ -308,11 +310,11 @@ def main():
 
     verify(dst)
 
-    # 在测试集上评估
-    metrics = YOLO(dst).val(data=args.data, split="test", device=args.device,
-                           plots=False, save=False, verbose=False)
-    print(f"  mAP@0.5={metrics.box.map50:.4f}  mAP@0.5:0.95={metrics.box.map:.4f}  "
-          f"P={metrics.box.mp:.4f}  R={metrics.box.mr:.4f}")
+    if not args.skip_test:
+        metrics = YOLO(dst).val(data=args.data, split="test", device=args.device,
+                               plots=False, save=False, verbose=False)
+        print(f"  mAP@0.5={metrics.box.map50:.4f}  mAP@0.5:0.95={metrics.box.map:.4f}  "
+              f"P={metrics.box.mp:.4f}  R={metrics.box.mr:.4f}")
 
     shutil.rmtree(os.path.join(HERE, "runs"), ignore_errors=True)
 
