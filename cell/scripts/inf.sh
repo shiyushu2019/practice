@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 python inf.py \
   --dataset mixed \
-  --weights weights/yolo26n_mixed.pt \
+  --weights weights/cf.pt \
   --conf 0.25 \
   --imgsz 640 \
   --iou 0.7 \

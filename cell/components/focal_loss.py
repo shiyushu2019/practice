@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ultralytics.nn.tasks import DetectionModel
-from ultralytics.utils.loss import v8DetectionLoss
+from ultralytics.utils.loss import E2ELoss, v8DetectionLoss
 
 
 class FocalLoss(nn.Module):
@@ -44,11 +44,11 @@ class FocalV8DetectionLoss(v8DetectionLoss):
     其余 (box / dfl / 任务对齐分配) 逻辑完全沿用父类。
     """
 
-    def __init__(self, model, gamma: float = 2.0, alpha: float = 0.25):
-        super().__init__(model)
+    def __init__(self, model, tal_topk: int = 10, tal_topk2=None):
+        super().__init__(model, tal_topk=tal_topk, tal_topk2=tal_topk2)
         # 返回逐元素 loss, 与 v8DetectionLoss 中 self.bce 的调用约定一致,
         # 由父类负责最终的 .sum() / target_scores_sum 归一化。
-        self.bce = FocalLoss(alpha=alpha, gamma=gamma)
+        self.bce = FocalLoss(alpha=model.focal_alpha, gamma=model.focal_gamma)
 
 
 class FocalDetectionModel(DetectionModel):
@@ -65,4 +65,6 @@ class FocalDetectionModel(DetectionModel):
         self.focal_alpha = alpha
 
     def init_criterion(self):
-        return FocalV8DetectionLoss(self, gamma=self.focal_gamma, alpha=self.focal_alpha)
+        if self.end2end:
+            return E2ELoss(self, loss_fn=FocalV8DetectionLoss)
+        return FocalV8DetectionLoss(self)

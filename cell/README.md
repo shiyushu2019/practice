@@ -1,8 +1,8 @@
-# YOLO26n 血细胞智能检测系统
+# CF-YOLOv8 血细胞智能检测系统
 
-基于 YOLO26n 的血细胞检测训练与演示系统，保留 CBAM、Focal Loss、DAMS-Net 等可选改进模块；历史 YOLOv8 实验文档见 `doc.txt`。
+基于改进型 YOLOv8n（CBAM 注意力 + Focal Loss + DAMS-Net）的血细胞检测实验与演示系统，实验文档见 `doc.txt`。
 
-- 模型变体：`baseline`（纯 YOLO26n，默认）/ `focal`（YOLO26n + Focal Loss）/ `cbam`（YOLO26n + CBAM）/ `dams`（YOLO26n + DAMS-Net）/ `cf`（YOLO26n + CBAM + Focal Loss + DAMS-Net）
+- 模型变体：`baseline`（纯 YOLOv8n 对照）/ `focal`（YOLOv8n + Focal Loss）/ `cbam`（YOLOv8n + CBAM）/ `dams`（YOLOv8n + DAMS-Net）/ `cf`（YOLOv8n + CBAM + Focal Loss + DAMS-Net，即完整 CF-YOLOv8）
 - 检测类别：`RBC` 红细胞 / `WBC` 白细胞（文档口径，仅两类）
 - 功能：训练（`train.py`）、推理（`inf.py`）、验证（`eval.py`）、Web 演示（`app.py`）、摄像头实时检测（`camera.py`）、VOC→YOLO 转换（`convert_voc_to_yolo.py`）、模型轻量化（`lightweight.py`）、SDK 与 API（`sdk/`，REST: `POST /api/detect`）
 
@@ -13,7 +13,7 @@ conda env create -f environment.yml   # 创建环境（环境名 cell）
 conda activate cell
 ```
 
-关键依赖：`ultralytics==8.4.130`（YOLO26 支持）、`torch==2.10.0+cu128`、`opencv-python`、`flask`。训练使用 `weights/yolo26n.pt` COCO 预训练权重。
+关键依赖：`ultralytics==8.4.130`、`torch==2.10.0+cu128`、`opencv-python`、`flask`。
 GPU：0-7 共 8 张 A6000；OOM 时用 `--device` 换卡或减小 `--batch`。
 
 ## 数据准备（两个数据集，目录为 dataset1）
@@ -72,10 +72,10 @@ python -m components.dataset_selection --all --force      # 删除已存在目�
 
 | 脚本 | 作用 |
 |---|---|
-| `main.sh` | 依次训练 YOLO26n baseline→focal→cbam→dams→cf，再验证与推理（混合数据集，默认超参） |
-| `train.sh` | 训练 YOLO26n baseline（Adam、lr0=0.001、batch16、freeze10、100 轮、mixed） |
+| `main.sh` | 依次训练 baseline→focal→cbam→cf，再验证与推理（混合数据集，默认超参） |
+| `train.sh` | 训练 cf（γ=2.0、Adam、lr0=0.001、batch16、freeze10、100 轮、mixed） |
 | `eval.sh` | 在混合测试集验证内置权重 |
-| `inf.sh` | 在混合测试集用训练后的 YOLO26n 权重推理 |
+| `inf.sh` | 在混合测试集用 cf.pt 推理 |
 | `app.sh` | 启动 Web 检测系统（端口 5000） |
 
 ```bash
@@ -87,11 +87,9 @@ bash scripts/main.sh
 > `convert_voc_to_yolo.py` 完成 VOC→YOLO 转换；`lightweight.py quantize/prune/distill` 做 INT8 量化、结构化剪枝与知识蒸馏（蒸馏复用 ultralytics 内置 `distill_model`，教师 CF-YOLOv8 → 剪枝学生）。
 > `eval.py` 还会根据 `doc.txt` 中的 Precision 和 mAP@0.5 声明生成模型对比表图片，输出到 `cell/temp/accuracy_comparison_<dataset>_<split>.png`。
 
-## 历史 YOLOv8 实验结果（mixed 2 类 · BCCD + TXL-PBC）
+## 实验结果（mixed 2 类 · BCCD + TXL-PBC）
 
-以下结果为原 YOLOv8 实验记录；当前 `train.py` 的默认基线已切换为 YOLO26n。
-
-原 YOLOv8 结果来自此前的训练记录；当前 `scripts/main.sh` 会基于 YOLO26n 重新训练 5 个变体，不能复现此表中的旧数值。
+复现命令：`bash scripts/main.sh`（默认 GPU 0，5 个变体依次训练→验证→推理）。
 
 训练配置：`Adam / lr0=0.001 / batch16 / freeze-epochs 10（先冻结后解冻）/ patience 10 / 100 轮 / 余弦退火`；Focal Loss `γ=2.0、α=0.25`（α-balanced：正样本权重 0.25、负样本 0.75，仅 cls 分支，box/DFL 不变）；CBAM（通道 1 输入 + 3 隐藏 + 1 输出 + 空间 7×7，置于 Conv 后、BN 前，reduction=8）；DAMS-Net（替换 Neck 的 Concat 固定融合，内容自适应门控加权）。
 
@@ -113,21 +111,6 @@ CF-YOLOv8 实测 `mAP@0.5 = 0.9562（>0.947）`、`Precision = 0.9067（>90%，�
 > 而文档假设的“WBC 因长尾难学”在本数据集上不成立（WBC 已 ≈0.99）。
 > 绝对指标达标依靠 2 类口径 + mixed 数据扩充；Focal 采用标准 α-balanced 形式（正样本 α=0.25、负样本 0.75）。
 
-## YOLO26n 训练结果
-
-训练命令：`python train.py --variant baseline --device 4 --epochs 100 --batch 16 --dataset mixed --out yolo26n_mixed`。
-使用 YOLO26n COCO 预训练权重，输入尺寸 640；mixed 数据集包含 1116 张训练图、310 张验证图和 198 张测试图。
-训练先冻结 10 轮，再解冻微调；第二阶段因连续 10 轮无提升于第 56 轮早停（总计训练 66 轮）。
-
-| 测试集指标 | 结果 |
-|---|---:|
-| mAP@0.5 | 0.9454 |
-| mAP@0.5:0.95 | 0.7748 |
-| Precision | 0.8971 |
-| Recall | 0.8979 |
-
-最佳权重：`weights/yolo26n_mixed.pt`；第二阶段训练记录：`results/yolo26n_mixed_train/results.csv`。
-
 ## Web 检测系统 (app.py)
 
 **CLI 启动：**
@@ -136,7 +119,7 @@ CF-YOLOv8 实测 `mAP@0.5 = 0.9562（>0.947）`、`Precision = 0.9067（>90%，�
 python app.py                                 # 默认端口 5000
 python app.py --port 8080                     # 指定端口
 python app.py --device 6 --conf 0.3           # 指定 GPU 与置信度阈值
-python app.py --weights weights/yolo26n_mixed.pt --device 0
+python app.py --weights weights/cbam.pt --device 0
 ```
 
 | 参数 | 说明 | 默认 |
@@ -144,7 +127,7 @@ python app.py --weights weights/yolo26n_mixed.pt --device 0
 | `--host` | 监听地址 | `0.0.0.0` |
 | `--port` | 端口 | `5000` |
 | `--device` | GPU 编号（0-7 或 cpu） | `0` |
-| `--weights` | 模型权重路径 | `weights/yolo26n_mixed.pt` |
+| `--weights` | 模型权重路径 | `weights/cf.pt` |
 | `--conf` | 置信度阈值 | `0.25` |
 | `--debug` | 开启 Flask 调试模式 | 关闭 |
 
@@ -160,20 +143,20 @@ python app.py --weights weights/yolo26n_mixed.pt --device 0
 环境：Python（先激活 conda 环境，在 `cell` 目录下执行，需在有摄像头与显示器的机器上运行）。
 
 ```bash
-# 默认摄像头 0 + weights/yolo26n_mixed.pt，实时检测并按 q 退出
+# 默认摄像头 0 + weights/cf.pt，实时检测并按 q 退出
 python camera.py
 # 可指定摄像头、权重、设备与置信度阈值
-python camera.py --camera 0 --weights weights/yolo26n_mixed.pt --device 0 --conf 0.25
+python camera.py --camera 0 --weights weights/cf.pt --device 0 --conf 0.25
 ```
 
 | 参数 | 说明 | 默认 |
 |---|---|---|
 | `--camera` | 摄像头编号 | `0` |
-| `--weights` | 模型权重路径 | `weights/yolo26n_mixed.pt` |
+| `--weights` | 模型权重路径 | `weights/cf.pt` |
 | `--device` | 推理设备（0-7 或 cpu） | `0` |
 | `--conf` | 置信度阈值 | `0.25` |
 
-说明：程序打开摄像头 0，加载 `weights/yolo26n_mixed.pt`，以置信度 0.25 逐帧检测并绘制检测框（检测框 + 类别标签 + 置信度），
+说明：程序打开摄像头 0，加载 `weights/cf.pt`，以置信度 0.25 逐帧检测并绘制检测框（检测框 + 类别标签 + 置信度），
 实时输出各类细胞统计计数，按 `q` 退出。摄像头模式下已关闭逐帧日志并设置底层计算库线程数，退出时自动释放摄像头资源。
 
 
@@ -181,29 +164,31 @@ python camera.py --camera 0 --weights weights/yolo26n_mixed.pt --device 0 --conf
 
 ### train.py —— 训练脚本
 
-先激活 conda 环境，在 `cell` 目录下执行。默认使用 `weights/yolo26n.pt`，`--variant` 可选 `baseline` / `focal` / `cbam` / `dams` / `cf`。
+先激活 conda 环境，在 `cell` 目录下执行。`--variant` 可选 `baseline` / `focal` / `cbam` / `dams` / `cf`。
 
 ```bash
-python train.py --variant baseline --device 0 --epochs 100 --batch 16 --out yolo26n_mixed
-python train.py --variant focal --device 0                     # YOLO26n + Focal Loss (消融)
-python train.py --variant cbam --device 0                      # YOLO26n + CBAM
-python train.py --variant baseline --dataset bccd --device 0   # 仅 BCCD 数据集
-python train.py --variant baseline --dataset txl --device 0    # 仅 TXL-PBC 数据集
-python train.py --variant baseline --freeze-epochs 10 --device 0
+python train.py --variant cf --device 0 --epochs 100 --batch 16
+python train.py --variant baseline --device 0                 # 纯 YOLOv8n 对照
+python train.py --variant focal --device 0                    # YOLOv8n + Focal Loss (消融)
+python train.py --variant cbam --device 0                     # YOLOv8n + CBAM
+python train.py --variant cf --dataset bccd --device 0        # 仅 BCCD 数据集
+python train.py --variant cf --dataset txl --device 0         # 仅 TXL-PBC 数据集
+python train.py --variant cf --freeze-epochs 10 --device 0    # 迁移学习：先冻结后解冻
+python train.py --variant cf --out cf_v2 --device 0           # 输出 weights/cf_v2.pt
 ```
 
 完整参数（默认值见括号）：
 
 | 参数 | 说明 | 默认 |
 |---|---|---|
-| `--variant` | 变体 | `baseline`（baseline/focal/cbam/dams/cf） |
+| `--variant` | 变体 | `cf`（baseline/focal/cbam/dams/cf） |
 | `--device` | GPU 编号 | `0`（0-7 或 cpu） |
 | `--epochs` | 训练轮数 | `100` |
 | `--batch` | Batch size | `16` |
 | `--gamma` | Focal Loss γ | `2.0` |
 | `--alpha` | Focal Loss α | `0.25` |
 | `--freeze-epochs` | 冻结主干训练检测头的轮数 | `10`（文档迁移学习：先冻结后解冻） |
-| `--freeze-layers` | 阶段 1 冻结的 backbone 层数 | `10` |
+| `--freeze-layers` | 阶段 1 冻结的 backbone 层数 | `10`（yolov8n 主干共 10 层） |
 | `--unfreeze-lr` | 解冻后精调阶段学习率 | `0.0001` |
 | `--out` | 输出权重文件名 | `weights/<variant>.pt` |
 | `--dataset` | 数据集 | `mixed`（bccd/txl/mixed） |
@@ -229,7 +214,7 @@ python train.py --variant baseline --freeze-epochs 10 --device 0
 | `--no-amp` | 关闭混合精度 AMP | 关闭 |
 | `--no-plots` | 不保存训练曲线图 | 关闭 |
 
-训练完成后 best 权重统一保存到 `weights/<variant>.pt`（或 `--out` 指定的文件）；当前实验权重使用独立名字（如 `yolo26n_mixed.pt`），不覆盖历史权重。
+训练完成后 best 权重统一保存到 `weights/<variant>.pt`（或 `--out` 指定的文件）。
 
 **消融调试要点**（以下五个旋钮均可单独命令行控制，无需改代码）：
 
@@ -241,10 +226,10 @@ python train.py --variant baseline --freeze-epochs 10 --device 0
 | 先冻结后解冻 | `--freeze-epochs` / `--freeze-layers` / `--unfreeze-lr` | 10 / 10 / 0.0001 | 先冻结主干再解冻精调 |
 
 ```bash
-# 仅 BCCD 数据集
-python train.py --variant baseline --dataset bccd --device 0
+# 仅 BCCD 数据集（文档原始口径；实测 mAP50≈0.90，达不到文档声称的 0.947）
+python train.py --variant cf --dataset bccd --device 0
 # 完整迁移学习流程（先冻结 10 层训检测头，再解冻全网低 lr 精调）
-python train.py --variant baseline --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.0001 --device 0
+python train.py --variant cf --freeze-epochs 10 --freeze-layers 10 --unfreeze-lr 0.005 --device 0
 ```
 
 ### inf.py —— 推理脚本（单图或目录）
@@ -253,7 +238,7 @@ python train.py --variant baseline --freeze-epochs 10 --freeze-layers 10 --unfre
 python inf.py --source a.jpg                                  # 单图
 python inf.py --source dataset/BCCD_Dataset/test/images       # 目录
 python inf.py --dataset mixed                                 # 不传 --source，自动用混合测试集
-python inf.py --dataset bccd --weights weights/yolo26n_mixed.pt --conf 0.3 --save
+python inf.py --dataset bccd --weights weights/cf.pt --conf 0.3 --save
 python inf.py --source a.jpg --imgsz 640 --iou 0.7 --max-det 300 --save-txt --save-conf
 ```
 
@@ -263,7 +248,7 @@ python inf.py --source a.jpg --imgsz 640 --iou 0.7 --max-det 300 --save-txt --sa
 |---|---|---|
 | `--source` | 图片路径或目录 | 未指定时用 `--dataset` 对应的测试集 |
 | `--dataset` | 数据集 | `mixed`（bccd/txl/mixed，仅用于默认测试图目录） |
-| `--weights` | 权重路径 | `weights/yolo26n_mixed.pt` |
+| `--weights` | 权重路径 | `weights/cf.pt` |
 | `--conf` | 置信度阈值 | `0.25`（越界自动夹取到 0.01-1.0） |
 | `--imgsz` | 推理输入尺寸 | `640` |
 | `--iou` | NMS IoU 阈值 | `0.7`（越界自动夹取到 0-1） |
@@ -283,7 +268,7 @@ python eval.py                          # 默认测试集、0 号卡、混合数
 python eval.py --split val              # 用验证集
 python eval.py --device 6               # 换卡
 python eval.py --dataset bccd           # 仅 BCCD 数据集
-python eval.py --weights weights/yolo26n_mixed.pt,weights/cbam.pt --device 0
+python eval.py --weights weights/cf.pt,weights/cbam.pt --device 0
 ```
 
 完整参数（默认值见括号）：

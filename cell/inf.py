@@ -21,7 +21,7 @@ from ultralytics import YOLO  # noqa: E402
 from components.dataset_selection import resolve_test_images, ensure_dataset_ready  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "yolo26n_mixed.pt")
+DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff")
 
 

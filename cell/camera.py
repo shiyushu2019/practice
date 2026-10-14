@@ -2,7 +2,7 @@
 """血细胞检测 —— 摄像头实时检测 UI。
 
 用法:
-    python camera.py --device 0 --weights weights/yolo26n_mixed.pt --conf 0.25 --camera 0
+    python camera.py --device 0 --weights weights/cf.pt --conf 0.25 --camera 0
     按 q 退出
 """
 import argparse
@@ -19,7 +19,7 @@ import cv2  # noqa: E402
 from ultralytics import YOLO  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "yolo26n_mixed.pt")
+DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 
 
 def parse_args():

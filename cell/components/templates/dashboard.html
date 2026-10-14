@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>CF-YOLOv8 血细胞智能检测系统</title>
+  <title>CF-YOLO26 血细胞智能检测系统</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -122,7 +122,7 @@
   <div class="flex-1 flex flex-col h-screen overflow-hidden relative">
     <header class="h-20 px-8 flex items-center justify-between flex-shrink-0 z-10">
       <div>
-        <h1 class="text-2xl font-extrabold text-brand-dark tracking-tight">🩸 CF-YOLOv8 血细胞智能检测系统</h1>
+        <h1 class="text-2xl font-extrabold text-brand-dark tracking-tight">🩸 CF-YOLO26 血细胞智能检测系统</h1>
         <p class="text-xs text-brand-muted mt-0.5 font-semibold">Blood Cell Detection Dashboard · CBAM + Focal Loss</p>
       </div>
       <div class="flex items-center gap-4 bg-white px-4 py-2 rounded-full shadow-sm border border-gray-100">
@@ -407,7 +407,7 @@
     const pIn = new THREE.Vector3(-12,0,0), pBack = new THREE.Vector3(-8,3,0), pCBAM = new THREE.Vector3(-3,3,0), pNeck = new THREE.Vector3(2,3,0), pHead = new THREE.Vector3(7,3,0), pOut = new THREE.Vector3(12,3,0);
     const pFocal = new THREE.Vector3(-3,-3,0), pClass = new THREE.Vector3(3,-3,0);
     createLinear("输入图像", pIn.x, pIn.y, pIn.z, 0.2, 2.5, colorInput, "640×640 显微镜血细胞图像");
-    createStacked("Backbone 主干网络", pBack.x, pBack.y, pBack.z, 5, 2.5, colorBackbone, "YOLOv8n Backbone (C2f+Conv)，提取多尺度特征");
+    createStacked("Backbone 主干网络", pBack.x, pBack.y, pBack.z, 5, 2.5, colorBackbone, "YOLO26n Backbone (C3k2+C2PSA+Conv)，提取多尺度特征");
     createLinear("CBAM 注意力模块", pCBAM.x, pCBAM.y, pCBAM.z, 1.2, 1.4, colorCBAM, "通道+空间双重注意力，聚焦细胞核与边缘纹理");
     createStacked("Neck 特征金字塔", pNeck.x, pNeck.y, pNeck.z, 4, 2.5, colorNeck, "FPN+PAN 多尺度特征融合，适应小目标");
     createLinear("检测头", pHead.x, pHead.y, pHead.z, 0.6, 1.4, colorHead, "分类 + 回归，输出检测框与置信度");
@@ -533,7 +533,7 @@
             const info = await res.json();
             const deviceLabel = String(info.device) === 'cpu' ? 'CPU' : `GPU ${info.device}`;
             document.getElementById('model-info-box').innerHTML = `
-                <div class="flex justify-between"><span class="text-brand-muted">架构</span><span class="font-bold">CF-YOLOv8</span></div>
+                <div class="flex justify-between"><span class="text-brand-muted">架构</span><span class="font-bold">CF-YOLO26</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">改进点</span><span class="font-bold">CBAM + Focal Loss</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">当前权重</span><span class="font-bold text-brand-primary">${info.weights || '--'}</span></div>
                 <div class="flex justify-between"><span class="text-brand-muted">推理设备</span><span class="font-bold">${deviceLabel}（自动选择）</span></div>

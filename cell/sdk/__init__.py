@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""YOLO26n 血细胞检测 SDK。
+"""CF-YOLO26 血细胞检测 SDK (doc.txt: SDK 开发包, 提供 API 接口)。
 
 对外提供简洁的 Python API: 输入血液显微图片, 输出检测框、细胞类别、置信度与
 各类细胞统计计数。底层复用 components.detector.CellDetector。
@@ -7,7 +7,7 @@
 用法 (自动把 cell 目录加入 sys.path, 任意目录均可导入):
     from sdk import CellSDK
 
-    sdk = CellSDK(weights="weights/yolo26n_mixed.pt", device="0", conf=0.25)
+    sdk = CellSDK(weights="weights/cf.pt", device="0", conf=0.25)
     res = sdk.detect("blood.jpg")
     print(res.total)          # 总细胞数
     print(res.counts)         # {'RBC': 18, 'WBC': 2}
@@ -50,16 +50,16 @@ class DetectionResult:
 
 
 class CellSDK:
-    """YOLO26n 血细胞检测 SDK 主入口。
+    """CF-YOLO26 血细胞检测 SDK 主入口。
 
     Args:
-        weights: 模型权重路径, 默认 cell/weights/yolo26n_mixed.pt。
+        weights: 模型权重路径, 默认 cell/weights/cf.pt。
         device:  推理设备, "0"-"7" 或 "cpu"。
         conf:    默认置信度阈值。
     """
 
     def __init__(self, weights: Optional[str] = None, device: str = "0", conf: float = 0.25):
-        engine_weights = weights or os.path.join(_CELL_ROOT, "weights", "yolo26n_mixed.pt")
+        engine_weights = weights or os.path.join(_CELL_ROOT, "weights", "cf.pt")
         self._engine = CellDetector(weights=engine_weights, device=device, conf=conf)
         self._engine.load_model()
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 全量训练 + 验证 + 推理 (数据集: 混合 BCCD + TXL-PBC; GPU 用 DEVICE 环境变量指定, 默认 0)
-# YOLO26n 消融五组: baseline / +Focal Loss / +CBAM / +DAMS-Net / +CBAM+Focal+DAMS; 各阶段需依次执行, 不要并行。
+# 消融五组: baseline / +Focal Loss / +CBAM / +DAMS-Net / CF-YOLOv8; 各阶段需依次执行, 不要并行。
 set -e
 
 DEVICE="${DEVICE:-0}"
@@ -16,19 +16,19 @@ else
     exit 1
 fi
 
-# 阶段1: YOLO26n 基线对照
+# 阶段1: 基线对照 YOLOv8n
 python train.py --variant baseline --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
 
-# 阶段2: YOLO26n + Focal Loss (消融)
+# 阶段2: YOLOv8n + Focal Loss (消融)
 python train.py --variant focal --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
 
-# 阶段3: YOLO26n + CBAM
+# 阶段3: YOLOv8n + CBAM
 python train.py --variant cbam --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
 
-# 阶段4: YOLO26n + DAMS-Net (消融)
+# 阶段4: YOLOv8n + DAMS-Net (消融)
 python train.py --variant dams --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE"
 
-# 阶段5: 完整改进模型 (YOLO26n + CBAM + Focal + DAMS-Net)
+# 阶段5: 完整 CF-YOLOv8 (CBAM + Focal + DAMS-Net), 按文档配置 (Adam/lr0=0.001/batch16/patience10/先冻结后解冻)
 python train.py --variant cf --epochs "$EPOCHS" --dataset "$DATASET" --device "$DEVICE" \
   --gamma 2.0 --alpha 0.25 --batch 16 --freeze-epochs 10
 
@@ -36,6 +36,6 @@ python train.py --variant cf --epochs "$EPOCHS" --dataset "$DATASET" --device "$
 python eval.py --split test --dataset "$DATASET" --device "$DEVICE" \
   --weights weights/baseline.pt,weights/focal.pt,weights/cbam.pt,weights/dams.pt,weights/cf.pt
 
-# 阶段7: FPS 基准 + 保存可视化结果图 (--benchmark 不落盘, 需分开调用)
+# 阶段7: FPS 基准 + 保存 CF-YOLOv8 可视化结果图 (--benchmark 不落盘, 需分开调用)
 python inf.py --dataset "$DATASET" --weights weights/cf.pt --device "$DEVICE" --benchmark
 python inf.py --dataset "$DATASET" --weights weights/cf.pt --device "$DEVICE" --save

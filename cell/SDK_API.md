@@ -1,4 +1,4 @@
-# YOLO26n SDK 与 API 接口文档
+# CF-YOLOv8 SDK 与 API 接口文档
 
 对应 `doc.txt` 交付物要求：SDK 开发包（提供 API 接口），输入血液显微图片，
 输出检测框、细胞类别、置信度、细胞统计计数结果。
@@ -15,7 +15,7 @@ SDK 封装在 `cell/sdk/__init__.py`，内部复用 `components.detector.CellDet
 ```python
 from sdk import CellSDK
 
-sdk = CellSDK(weights="weights/yolo26n_mixed.pt", device="0", conf=0.25)
+sdk = CellSDK(weights="weights/cf.pt", device="0", conf=0.25)  # 默认权重 cell/weights/cf.pt
 
 res = sdk.detect("blood.jpg")
 print(res.total)      # 总细胞数
@@ -62,7 +62,7 @@ for b in res.boxes:
 启动 Web 服务后即可调用：
 
 ```bash
-python app.py --device 0 --weights weights/yolo26n_mixed.pt --port 5000
+python app.py --device 0 --weights weights/cf.pt --port 5000
 ```
 
 ### 1. 单图检测（SDK 接口）`POST /api/detect`

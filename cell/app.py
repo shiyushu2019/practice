@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""YOLO26n 血细胞智能检测系统 (Flask Dashboard)。
+"""CF-YOLO26 血细胞智能检测系统 (Flask Dashboard)。
 
 参照 web_app_example 的架构与 UI 风格重写。
 
@@ -30,7 +30,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "components"))
 
 # 默认配置（可被命令行参数或环境变量覆盖）
-DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "yolo26n_mixed.pt")
+DEFAULT_WEIGHTS = os.path.join(HERE, "weights", "cf.pt")
 DEFAULT_CONF = 0.25
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 5000
@@ -47,7 +47,7 @@ logger = logging.getLogger("cell.dashboard")
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="YOLO26n 血细胞智能检测系统")
+    parser = argparse.ArgumentParser(description="CF-YOLO26 血细胞智能检测系统")
     parser.add_argument("--host", default=os.environ.get("CELL_HOST", DEFAULT_HOST),
                         help=f"监听地址（默认 {DEFAULT_HOST}，可用环境变量 CELL_HOST 覆盖）")
     parser.add_argument("--port", type=int, default=int(os.environ.get("CELL_PORT", DEFAULT_PORT)),
@@ -510,13 +510,13 @@ def main():
     global detector, model_info, DEFAULT_CONF
     DEFAULT_CONF = args.conf
 
-    logger.info("初始化 YOLO26n 检测器...")
+    logger.info("初始化 CF-YOLO26 检测器...")
     detector = CellDetector(weights=args.weights, device=args.device, conf=args.conf)
     detector.load_model()
     model_info = detector.get_model_info()
     logger.info("模型加载完成: %s", model_info)
 
-    logger.info("🩸 YOLO26n 血细胞智能检测系统")
+    logger.info("🩸 CF-YOLO26 血细胞智能检测系统")
     logger.info("访问: http://%s:%d", args.host, args.port)
     app.run(host=args.host, port=args.port, debug=args.debug)
 
