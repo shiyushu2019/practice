@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Subset
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -47,20 +47,16 @@ if __name__ == "__main__":
 
     ds = ImageFolder(root=dataset_dir, transform=transform)
     ds_len = len(ds)
-    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
+    third=ds_len//3
+    idx_part1 = list(range(0, third))          # resnetface.py
+    idx_part2 = list(range(third, 2 * third))  # aeface.py train
+    idx_part3 = list(range(2 * third, ds_len)) # 当前nattackface.py
 
-    aux_ds_len = len(aux_ds)
+    train_ds=Subset(ds, idx_part3)
+    test_ds=Subset(ds, idx_part1) # 用其他划分来测试
     
-    aux_train_ds, aux_test_ds = random_split(
-        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
-    )
-
-    train_ds = aux_train_ds
-    test_ds = aux_test_ds
-
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
-
     print(train_ds_len)
     print(test_ds_len)
 
@@ -82,17 +78,8 @@ if __name__ == "__main__":
         pin_memory=True,
     )
 
-    train_dl1 = DataLoader(
+    train_dl1 = DataLoader(      # 训练集评估时使用
         dataset=train_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=data_workers,
-        drop_last=False,
-        pin_memory=True,
-    )
-
-    priv_dl = DataLoader(
-        dataset=priv_ds,
         batch_size=batch_size,
         shuffle=False,
         num_workers=data_workers,
@@ -241,7 +228,6 @@ if __name__ == "__main__":
     aeinversion.requires_grad_(False)
 
     # 训练主循环：将目标模型特征投影到新空间，并与 AE 隐表示做对齐；
-    # 在保持重建质量的同时，尽量接近目标特征分布。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
             im = im.to(output_device)
@@ -271,7 +257,6 @@ if __name__ == "__main__":
             with open(os.path.join(model_dir, f"newfe_{epoch_id}.pkl"), "wb") as f:
                 torch.save(newfe.state_dict(), f)
 
-        if epoch_id % log_epoch == 0:
             with torch.no_grad():
                 newfe.eval()
                 r = 0
@@ -310,20 +295,3 @@ if __name__ == "__main__":
                 ssimlossavg = ssimloss / r
                 print("test ssim", ssimlossavg.item(), epoch_id)
 
-                r = 0
-                ssimloss = 0
-                for i, (im, label) in enumerate(tqdm(priv_dl, desc=f"priv")):
-                    r += 1
-                    im = im.to(output_device)
-                    label = label.to(output_device)
-                    im2 = resize(im, 128, antialias=False)
-                    bs, c, h, w = im.shape
-                    target_feature = target_feature_extractor.forward(im)
-                    target_feature = newfe.forward(target_feature)
-                    target_feature = F.normalize(target_feature)
-                    rim = aeinversion.forward(target_feature)
-                    ssim = SSIMLoss()(rim, im2)
-                    ssimloss += ssim
-
-                ssimlossavg = ssimloss / r
-                print("priv ssim", ssimlossavg.item(), epoch_id)

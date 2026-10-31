@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split,Subset
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -44,17 +44,18 @@ if __name__ == "__main__":
     )
     ds = ImageFolder(root=dataset_dir, transform=transform)
     ds_len = len(ds)
-    train_ds, test_ds = random_split(
-        ds, [ds_len * 6 // 7, ds_len - ds_len * 6 // 7]
-    )
-    class_num = len(ds.classes)
+    third=ds_len//3
+    idx_part1 = list(range(0, third))                # 当前resnetface.py
+    idx_part2 = list(range(third, 2 * third))        # aeface.py
+    idx_part3 = list(range(2 * third, ds_len))       # attackface.py
 
+    train_ds=Subset(ds, idx_part1)
+    test_ds=Subset(ds, idx_part2) #使用另外一份评估
+    class_num = len(ds.classes)
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
-
     print(train_ds_len)
     print(test_ds_len)
-
     train_dl = DataLoader(
         dataset=train_ds,
         batch_size=batch_size,
@@ -63,7 +64,6 @@ if __name__ == "__main__":
         drop_last=True,
         pin_memory=True,
     )
-
     test_dl = DataLoader(
         dataset=test_ds,
         batch_size=batch_size,
@@ -72,8 +72,7 @@ if __name__ == "__main__":
         drop_last=False,
         pin_memory=True,
     )
-
-    train_dl1 = DataLoader(
+    train_dl1 = DataLoader(  #用训练集评估时候用的
         dataset=train_ds,
         batch_size=batch_size,
         shuffle=False,
@@ -81,7 +80,6 @@ if __name__ == "__main__":
         drop_last=False,
         pin_memory=True,
     )
-
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
 

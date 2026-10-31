@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split,Subset
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -49,24 +49,13 @@ if __name__ == "__main__":
     ds = ImageFolder(root=dataset_dir, transform=transform)
 
     ds_len = len(ds)
+    third=ds_len//3
+    idx_part1 = list(range(0, third))          # resnetface.py
+    idx_part2 = list(range(third, 2 * third))  # 当前aeface.py
+    idx_part3 = list(range(2 * third, ds_len)) # attackface.py
 
-    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
-
-    aux_ds_len = len(aux_ds)
-
-    aux_train_ds, aux_test_ds = random_split(
-        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
-    )
-
-    train_ds = aux_train_ds
-    test_ds = aux_test_ds
-
-    train_ds_len = len(train_ds)
-    test_ds_len = len(test_ds)
-
-    print(train_ds_len)
-    print(test_ds_len)
-
+    train_ds=Subset(ds, idx_part2)
+    test_ds=Subset(ds, idx_part3)     #用后面的作为测试
     train_dl = DataLoader(
         dataset=train_ds,
         batch_size=batch_size,
@@ -85,17 +74,13 @@ if __name__ == "__main__":
         pin_memory=True,
     )
 
-    train_dl1 = DataLoader(
-        dataset=train_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=data_workers,
-        drop_last=False,
-        pin_memory=True,
-    )
+    train_ds_len = len(train_ds)
+    test_ds_len = len(test_ds)
+    print(train_ds_len)
+    print(test_ds_len)
 
-    priv_dl = DataLoader(
-        dataset=priv_ds,
+    train_dl1 = DataLoader(         # 用训练集评估的时候使用
+        dataset=train_ds,
         batch_size=batch_size,
         shuffle=False,
         num_workers=data_workers,
@@ -242,13 +227,12 @@ if __name__ == "__main__":
             ) as f:
                 torch.save(myinversion.state_dict(), f)
 
-        if epoch_id % log_epoch == 0:
             with torch.no_grad():
                 feature_extractor.eval()
                 myinversion.eval()
                 r = 0
                 ssimloss = 0
-                for i, (im, label) in enumerate(tqdm(train_dl, desc=f"train")):
+                for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train")):
                     r += 1
                     im = im.to(output_device)
                     label = label.to(output_device)
@@ -278,18 +262,3 @@ if __name__ == "__main__":
                 ssimlossavg = ssimloss / r
                 print("test ssim", ssimlossavg.item(), epoch_id)
 
-                r = 0
-                ssimloss = 0
-                for i, (im, label) in enumerate(tqdm(priv_dl, desc=f"priv")):
-                    r += 1
-                    im = im.to(output_device)
-                    label = label.to(output_device)
-                    bs, c, h, w = im.shape
-                    feature8192 = feature_extractor.forward(im)
-                    feature8192 = F.normalize(feature8192)
-                    rim = myinversion.forward(feature8192)
-                    ssim = SSIMLoss()(rim, im)
-                    ssimloss += ssim
-
-                ssimlossavg = ssimloss / r
-                print("priv ssim", ssimlossavg.item(), epoch_id)
