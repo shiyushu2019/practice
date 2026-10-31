@@ -49,13 +49,16 @@ if __name__ == "__main__":
     ds = ImageFolder(root=dataset_dir, transform=transform)
 
     ds_len = len(ds)
-    third=ds_len//3
-    idx_part1 = list(range(0, third))          # resnetface.py
-    idx_part2 = list(range(third, 2 * third))  # 当前aeface.py
-    idx_part3 = list(range(2 * third, ds_len)) # attackface.py
+    test_size = ds_len // 10
+    train_size = ds_len - test_size
+    third = train_size // 3
+    idx_part1 = list(range(0, third))                 # resnetface.py
+    idx_part2 = list(range(third, 2 * third))         # 当前aeface.py
+    idx_part3 = list(range(2 * third, train_size))    # nattackface.py
+    idx_test = list(range(train_size, ds_len))        # 全局测试集
 
     train_ds=Subset(ds, idx_part2)
-    test_ds=Subset(ds, idx_part3)     #用后面的作为测试
+    test_ds=Subset(ds, idx_test)
     train_dl = DataLoader(
         dataset=train_ds,
         batch_size=batch_size,
@@ -261,4 +264,3 @@ if __name__ == "__main__":
 
                 ssimlossavg = ssimloss / r
                 print("test ssim", ssimlossavg.item(), epoch_id)
-

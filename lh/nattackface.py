@@ -47,13 +47,16 @@ if __name__ == "__main__":
 
     ds = ImageFolder(root=dataset_dir, transform=transform)
     ds_len = len(ds)
-    third=ds_len//3
-    idx_part1 = list(range(0, third))          # resnetface.py
-    idx_part2 = list(range(third, 2 * third))  # aeface.py train
-    idx_part3 = list(range(2 * third, ds_len)) # 当前nattackface.py
+    test_size = ds_len // 10
+    train_size = ds_len - test_size
+    third = train_size // 3
+    idx_part1 = list(range(0, third))                 # resnetface.py
+    idx_part2 = list(range(third, 2 * third))         # aeface.py train
+    idx_part3 = list(range(2 * third, train_size))    # 当前nattackface.py
+    idx_test = list(range(train_size, ds_len))        # 全局测试集
 
     train_ds=Subset(ds, idx_part3)
-    test_ds=Subset(ds, idx_part1) # 用其他划分来测试
+    test_ds=Subset(ds, idx_test)
     
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
@@ -294,4 +297,3 @@ if __name__ == "__main__":
 
                 ssimlossavg = ssimloss / r
                 print("test ssim", ssimlossavg.item(), epoch_id)
-
