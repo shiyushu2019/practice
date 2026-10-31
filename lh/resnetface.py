@@ -116,6 +116,11 @@ if __name__ == "__main__":
     # 训练主循环：先前向计算特征和 logits，再用交叉熵更新分类器和特征提取器；
     # 每隔若干轮记录损失和准确率，并保存模型快照。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
+        feature_extractor.train()
+        cls.train()
+        epoch_loss = 0.0
+        epoch_correct = 0
+        epoch_samples = 0
         iters = tqdm(train_dl, desc=f"epoch {epoch_id}")
         for i, (im, label) in enumerate(iters):
             im = im.to(output_device)
@@ -130,15 +135,14 @@ if __name__ == "__main__":
             loss.backward()
             optimizer_cls.step()
             optimizer_fe.step()
+            batch_samples = label.size(0)
+            epoch_loss += loss.detach().item() * batch_samples
+            epoch_correct += (out.argmax(dim=-1) == label).sum().item()
+            epoch_samples += batch_samples
 
         if epoch_id % log_epoch == 0:
-            train_ca = ClassificationAccuracy(class_num)
-            after_softmax = F.softmax(out, dim=-1)
-            predict = torch.argmax(after_softmax, dim=-1)
-            train_ca.accumulate(label=label, predict=predict)
-            acc_train = train_ca.get()
-            print("loss", loss, epoch_id)
-            print("acc_training", acc_train, epoch_id)
+            print("loss", epoch_loss / epoch_samples, epoch_id)
+            print("acc_training", epoch_correct / epoch_samples, epoch_id)
             with open(
                 os.path.join(log_dir, f"feature_extractor_{epoch_id}.pkl"), "wb"
             ) as f:
@@ -149,11 +153,10 @@ if __name__ == "__main__":
             with torch.no_grad():
                 feature_extractor.eval()
                 cls.eval()
-                r = 0
-                celoss = 0
+                train_samples = 0
+                celoss = 0.0
                 test_ca = ClassificationAccuracy(class_num)
                 for i, (im, label) in enumerate(tqdm(train_dl1, desc="testing train")):
-                    r += 1
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape
@@ -163,18 +166,19 @@ if __name__ == "__main__":
                     after_softmax = F.softmax(out, dim=-1)
                     predict = torch.argmax(after_softmax, dim=-1)
                     test_ca.accumulate(label=label, predict=predict)
-                    celoss += ce
+                    batch_samples = label.size(0)
+                    celoss += ce.item() * batch_samples
+                    train_samples += batch_samples
 
-                celossavg = celoss / r
+                celossavg = celoss / train_samples
                 acc_test = test_ca.get()
                 print("acc_train", acc_test, epoch_id)
                 print("train loss", celossavg, epoch_id)
 
-                r = 0
-                celoss = 0
+                test_samples = 0
+                celoss = 0.0
                 test_ca = ClassificationAccuracy(class_num)
                 for i, (im, label) in enumerate(tqdm(test_dl, desc="testing test")):
-                    r += 1
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape
@@ -184,9 +188,11 @@ if __name__ == "__main__":
                     after_softmax = F.softmax(out, dim=-1)
                     predict = torch.argmax(after_softmax, dim=-1)
                     test_ca.accumulate(label=label, predict=predict)
-                    celoss += ce
+                    batch_samples = label.size(0)
+                    celoss += ce.item() * batch_samples
+                    test_samples += batch_samples
 
-                celossavg = celoss / r
+                celossavg = celoss / test_samples
                 acc_test = test_ca.get()
                 print("test loss", celossavg, epoch_id)
                 print("acc_test", acc_test, epoch_id)

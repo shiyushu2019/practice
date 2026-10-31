@@ -235,6 +235,11 @@ if __name__ == "__main__":
 
     # 训练主循环：将目标模型特征投影到新空间，并与 AE 隐表示做对齐；
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
+        newfe.train()
+        epoch_loss = 0.0
+        epoch_ssim = 0.0
+        epoch_cossim = 0.0
+        epoch_samples = 0
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
             im = im.to(output_device)
             label = label.to(output_device)
@@ -246,18 +251,22 @@ if __name__ == "__main__":
             target_feature = newfe.forward(target_feature)
             target_feature = F.normalize(target_feature)
             ae_feature8192 = F.normalize(ae_feature8192)
-            fmse = F.mse_loss(target_feature, ae_feature8192)
             cossim = torch.mean(F.cosine_similarity(target_feature, ae_feature8192))
             rim = aeinversion.forward(target_feature)
             ssim = SSIMLoss()(rim, im2)
             loss = 1 - cossim
             loss.backward()
             optimizer.step()
+            batch_samples = label.size(0)
+            epoch_loss += loss.detach().item() * batch_samples
+            epoch_ssim += ssim.detach().item() * batch_samples
+            epoch_cossim += cossim.detach().item() * batch_samples
+            epoch_samples += batch_samples
 
         if epoch_id % log_epoch == 0:
-            print("loss", loss.item(), epoch_id)
-            print("ssim", ssim.item(), epoch_id)
-            print("cossim", cossim.item(), epoch_id)
+            print("loss", epoch_loss / epoch_samples, epoch_id)
+            print("ssim", epoch_ssim / epoch_samples, epoch_id)
+            print("cossim", epoch_cossim / epoch_samples, epoch_id)
             save_image2(im.detach(), f"{log_dir}/input/{epoch_id}.png")
             save_image2(rim.detach(), f"{log_dir}/output/{epoch_id}.png")
             with open(os.path.join(model_dir, f"newfe_{epoch_id}.pkl"), "wb") as f:
@@ -265,10 +274,9 @@ if __name__ == "__main__":
 
             with torch.no_grad():
                 newfe.eval()
-                r = 0
-                ssimloss = 0
+                train_samples = 0
+                ssimloss = 0.0
                 for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train")):
-                    r += 1
                     im = im.to(output_device)
                     label = label.to(output_device)
                     im2 = resize(im, 128, antialias=False)
@@ -278,15 +286,16 @@ if __name__ == "__main__":
                     target_feature = F.normalize(target_feature)
                     rim = aeinversion.forward(target_feature)
                     ssim = SSIMLoss()(rim, im2)
-                    ssimloss += ssim
+                    batch_samples = label.size(0)
+                    ssimloss += ssim.item() * batch_samples
+                    train_samples += batch_samples
 
-                ssimlossavg = ssimloss / r
-                print("train ssim", ssimlossavg.item(), epoch_id)
+                ssimlossavg = ssimloss / train_samples
+                print("train ssim", ssimlossavg, epoch_id)
 
-                r = 0
-                ssimloss = 0
+                test_samples = 0
+                ssimloss = 0.0
                 for i, (im, label) in enumerate(tqdm(test_dl, desc=f"test")):
-                    r += 1
                     im = im.to(output_device)
                     label = label.to(output_device)
                     im2 = resize(im, 128, antialias=False)
@@ -296,7 +305,9 @@ if __name__ == "__main__":
                     target_feature = F.normalize(target_feature)
                     rim = aeinversion.forward(target_feature)
                     ssim = SSIMLoss()(rim, im2)
-                    ssimloss += ssim
+                    batch_samples = label.size(0)
+                    ssimloss += ssim.item() * batch_samples
+                    test_samples += batch_samples
 
-                ssimlossavg = ssimloss / r
-                print("test ssim", ssimlossavg.item(), epoch_id)
+                ssimlossavg = ssimloss / test_samples
+                print("test ssim", ssimlossavg, epoch_id)

@@ -204,6 +204,11 @@ if __name__ == "__main__":
     # 训练主循环：先由特征提取器得到隐表示，再由反演器重建图像；
     # 使用 SSIM 作为重建质量衡量指标，并定期保存中间结果和模型权重。
     for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
+        feature_extractor.train()
+        myinversion.train()
+        epoch_loss = 0.0
+        epoch_ssim = 0.0
+        epoch_samples = 0
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
             im = im.to(output_device)
             label = label.to(output_device)
@@ -218,10 +223,14 @@ if __name__ == "__main__":
             loss.backward()
             optimizer_fe.step()
             optimizer.step()
+            batch_samples = label.size(0)
+            epoch_loss += loss.detach().item() * batch_samples
+            epoch_ssim += ssim.detach().item() * batch_samples
+            epoch_samples += batch_samples
 
         if epoch_id % log_epoch == 0:
-            print("loss", loss.item(), epoch_id)
-            print("ssim", ssim.item(), epoch_id)
+            print("loss", epoch_loss / epoch_samples, epoch_id)
+            print("ssim", epoch_ssim / epoch_samples, epoch_id)
             save_image2(im.detach(), f"{log_dir}/input/{epoch_id}.png")
             save_image2(rim.detach(), f"{log_dir}/output/{epoch_id}.png")
             with open(
@@ -236,10 +245,9 @@ if __name__ == "__main__":
             with torch.no_grad():
                 feature_extractor.eval()
                 myinversion.eval()
-                r = 0
-                ssimloss = 0
+                train_samples = 0
+                ssimloss = 0.0
                 for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train")):
-                    r += 1
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape
@@ -247,15 +255,16 @@ if __name__ == "__main__":
                     feature8192 = F.normalize(feature8192)
                     rim = myinversion.forward(feature8192)
                     ssim = SSIMLoss()(rim, im)
-                    ssimloss += ssim
+                    batch_samples = label.size(0)
+                    ssimloss += ssim.item() * batch_samples
+                    train_samples += batch_samples
 
-                ssimlossavg = ssimloss / r
-                print("train ssim", ssimlossavg.item(), epoch_id)
+                ssimlossavg = ssimloss / train_samples
+                print("train ssim", ssimlossavg, epoch_id)
 
-                r = 0
-                ssimloss = 0
+                test_samples = 0
+                ssimloss = 0.0
                 for i, (im, label) in enumerate(tqdm(test_dl, desc=f"test")):
-                    r += 1
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape
@@ -263,7 +272,9 @@ if __name__ == "__main__":
                     feature8192 = F.normalize(feature8192)
                     rim = myinversion.forward(feature8192)
                     ssim = SSIMLoss()(rim, im)
-                    ssimloss += ssim
+                    batch_samples = label.size(0)
+                    ssimloss += ssim.item() * batch_samples
+                    test_samples += batch_samples
 
-                ssimlossavg = ssimloss / r
-                print("test ssim", ssimlossavg.item(), epoch_id)
+                ssimlossavg = ssimloss / test_samples
+                print("test ssim", ssimlossavg, epoch_id)
