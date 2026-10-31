@@ -52,10 +52,13 @@ if __name__ == "__main__":
     test_size = ds_len // 10
     train_size = ds_len - test_size
     third = train_size // 3
-    idx_part1 = list(range(0, third))                 # resnetface.py
-    idx_part2 = list(range(third, 2 * third))         # 当前aeface.py
-    idx_part3 = list(range(2 * third, train_size))    # nattackface.py
-    idx_test = list(range(train_size, ds_len))        # 全局测试集
+    shuffled_indices = torch.randperm(
+        ds_len, generator=torch.Generator().manual_seed(seed)
+    ).tolist()
+    idx_part1 = shuffled_indices[:third]                    # resnetface.py
+    idx_part2 = shuffled_indices[third : 2 * third]         # 当前aeface.py
+    idx_part3 = shuffled_indices[2 * third : train_size]    # nattackface.py
+    idx_test = shuffled_indices[train_size:]                # 全局测试集
 
     train_ds=Subset(ds, idx_part2)
     test_ds=Subset(ds, idx_test)
