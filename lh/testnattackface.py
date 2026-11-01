@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import *
 from torchvision.transforms.v2 import *
 from torchvision.transforms.v2.functional import *
@@ -42,42 +42,23 @@ if __name__ == "__main__":
 
     ds = ImageFolder(root=dataset_dir, transform=eval_transform)
     ds_len = len(ds)
-    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
-    aux_ds_len = len(aux_ds)
-    aux_train_ds, aux_test_ds = random_split(
-        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
-    )
-
-    train_ds = aux_train_ds
-    test_ds = aux_test_ds
-
-    train_ds_len = len(train_ds)
+    test_size = ds_len // 10
+    train_size = ds_len - test_size
+    third = train_size // 3
+    shuffled_indices = torch.randperm(
+        ds_len, generator=torch.Generator().manual_seed(seed)
+    ).tolist()
+    idx_part1 = shuffled_indices[:third]                    # resnetface.py
+    idx_part2 = shuffled_indices[third : 2 * third]         # aeface.py
+    idx_part3 = shuffled_indices[2 * third : train_size]    # nattackface.py
+    idx_test = shuffled_indices[train_size:]
+    test_ds = Subset(ds, idx_test)
     test_ds_len = len(test_ds)
 
-    print(train_ds_len)
     print(test_ds_len)
 
-    # for evaluate
-    train_dl = DataLoader(
-        dataset=train_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=data_workers,
-        drop_last=False,
-        pin_memory=True,
-    )
-    # for attack
     test_dl = DataLoader(
         dataset=test_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=data_workers,
-        drop_last=False,
-        pin_memory=True,
-    )
-
-    priv_dl = DataLoader(
-        dataset=priv_ds,
         batch_size=batch_size,
         shuffle=False,
         num_workers=data_workers,
@@ -167,44 +148,50 @@ if __name__ == "__main__":
     newfe.requires_grad_(False)
     aeinversion.requires_grad_(False)
 
-    # 生成样例图：在不更新参数的情况下，将训练集、测试集和隐私集的图像
-    # 经过特征映射和反演重建，保存输入/输出对，方便观察恢复效果。
+    # Evaluate cosine similarity on the full shared test set.
+    cosine_sum = 0.0
+    evaluated_samples = 0
     with torch.no_grad():
-        for i, (im, label) in enumerate(tqdm(train_dl, desc=f"export train", mininterval=1.0)):
+        for im, _ in tqdm(test_dl, desc="evaluate test", mininterval=1.0):
             im = im.to(output_device)
-            label = label.to(output_device)
             im2 = resize(im, 128, antialias=False)
-            bs, c, h, w = im.shape
             target_feature8192 = target_feature_extractor.forward(im)
             target_feature8192 = newfe.forward(target_feature8192)
             target_feature8192 = F.normalize(target_feature8192)
             rim = aeinversion.forward(target_feature8192)
-            save_image2(im2.detach(), f"{log_dir}/train/input/{i}.png", nrow=4)
-            save_image2(rim.detach(), f"{log_dir}/train/output/{i}.png", nrow=4)
-            break
+            cosine_sum += F.cosine_similarity(
+                im2.flatten(start_dim=1), rim.flatten(start_dim=1), dim=1
+            ).sum().item()
+            evaluated_samples += im.size(0)
 
-        for i, (im, label) in enumerate(tqdm(test_dl, desc=f"export test", mininterval=1.0)):
-            im = im.to(output_device)
-            label = label.to(output_device)
-            im2 = resize(im, 128, antialias=False)
-            bs, c, h, w = im.shape
-            target_feature8192 = target_feature_extractor.forward(im)
-            target_feature8192 = newfe.forward(target_feature8192)
-            target_feature8192 = F.normalize(target_feature8192)
-            rim = aeinversion.forward(target_feature8192)
-            save_image2(im2.detach(), f"{log_dir}/test/input/{i}.png", nrow=4)
-            save_image2(rim.detach(), f"{log_dir}/test/output/{i}.png", nrow=4)
-            break
+    print("test average cosine similarity", cosine_sum / evaluated_samples)
 
-        for i, (im, label) in enumerate(tqdm(priv_dl, desc=f"export priv", mininterval=1.0)):
+    sample_count = min(100, test_ds_len)
+    sample_indices = torch.randperm(
+        test_ds_len, generator=torch.Generator().manual_seed(seed + 1)
+    )[:sample_count].tolist()
+    sample_dl = DataLoader(
+        dataset=Subset(test_ds, sample_indices),
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=data_workers,
+        drop_last=False,
+        pin_memory=True,
+    )
+    pair_dir = os.path.join(log_dir, "test_pairs")
+    os.makedirs(pair_dir, exist_ok=True)
+
+    # Save original/reconstruction pairs side by side for visual inspection.
+    with torch.no_grad():
+        image_index = 0
+        for im, _ in tqdm(sample_dl, desc="save test pairs", mininterval=1.0):
             im = im.to(output_device)
-            label = label.to(output_device)
             im2 = resize(im, 128, antialias=False)
-            bs, c, h, w = im.shape
             target_feature8192 = target_feature_extractor.forward(im)
             target_feature8192 = newfe.forward(target_feature8192)
             target_feature8192 = F.normalize(target_feature8192)
             rim = aeinversion.forward(target_feature8192)
-            save_image2(im2.detach(), f"{log_dir}/priv/input/{i}.png", nrow=4)
-            save_image2(rim.detach(), f"{log_dir}/priv/output/{i}.png", nrow=4)
-            break
+            pairs = torch.cat((im2, rim), dim=3)
+            for pair in pairs:
+                save_image2(pair.detach(), os.path.join(pair_dir, f"{image_index:03d}.png"))
+                image_index += 1
