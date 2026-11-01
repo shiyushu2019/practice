@@ -115,13 +115,13 @@ if __name__ == "__main__":
 
     # 训练主循环：先前向计算特征和 logits，再用交叉熵更新分类器和特征提取器；
     # 每隔若干轮记录损失和准确率，并保存模型快照。
-    for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
+    for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch", mininterval=1.0):
         feature_extractor.train()
         cls.train()
         epoch_loss = 0.0
         epoch_correct = 0
         epoch_samples = 0
-        iters = tqdm(train_dl, desc=f"epoch {epoch_id}")
+        iters = tqdm(train_dl, desc=f"epoch {epoch_id}", mininterval=1.0)
         for i, (im, label) in enumerate(iters):
             im = im.to(output_device)
             label = label.to(output_device)
@@ -156,7 +156,7 @@ if __name__ == "__main__":
                 train_samples = 0
                 celoss = 0.0
                 test_ca = ClassificationAccuracy(class_num)
-                for i, (im, label) in enumerate(tqdm(train_dl1, desc="testing train")):
+                for i, (im, label) in enumerate(tqdm(train_dl1, desc="testing train", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape
@@ -178,7 +178,7 @@ if __name__ == "__main__":
                 test_samples = 0
                 celoss = 0.0
                 test_ca = ClassificationAccuracy(class_num)
-                for i, (im, label) in enumerate(tqdm(test_dl, desc="testing test")):
+                for i, (im, label) in enumerate(tqdm(test_dl, desc="testing test", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape

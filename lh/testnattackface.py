@@ -170,7 +170,7 @@ if __name__ == "__main__":
     # 生成样例图：在不更新参数的情况下，将训练集、测试集和隐私集的图像
     # 经过特征映射和反演重建，保存输入/输出对，方便观察恢复效果。
     with torch.no_grad():
-        for i, (im, label) in enumerate(tqdm(train_dl, desc=f"export train")):
+        for i, (im, label) in enumerate(tqdm(train_dl, desc=f"export train", mininterval=1.0)):
             im = im.to(output_device)
             label = label.to(output_device)
             im2 = resize(im, 128, antialias=False)
@@ -183,7 +183,7 @@ if __name__ == "__main__":
             save_image2(rim.detach(), f"{log_dir}/train/output/{i}.png", nrow=4)
             break
 
-        for i, (im, label) in enumerate(tqdm(test_dl, desc=f"export test")):
+        for i, (im, label) in enumerate(tqdm(test_dl, desc=f"export test", mininterval=1.0)):
             im = im.to(output_device)
             label = label.to(output_device)
             im2 = resize(im, 128, antialias=False)
@@ -196,7 +196,7 @@ if __name__ == "__main__":
             save_image2(rim.detach(), f"{log_dir}/test/output/{i}.png", nrow=4)
             break
 
-        for i, (im, label) in enumerate(tqdm(priv_dl, desc=f"export priv")):
+        for i, (im, label) in enumerate(tqdm(priv_dl, desc=f"export priv", mininterval=1.0)):
             im = im.to(output_device)
             label = label.to(output_device)
             im2 = resize(im, 128, antialias=False)

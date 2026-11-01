@@ -234,13 +234,13 @@ if __name__ == "__main__":
     aeinversion.requires_grad_(False)
 
     # 训练主循环：将目标模型特征投影到新空间，并与 AE 隐表示做对齐；
-    for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
+    for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch", mininterval=1.0):
         newfe.train()
         epoch_loss = 0.0
         epoch_ssim = 0.0
         epoch_cossim = 0.0
         epoch_samples = 0
-        for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
+        for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ", mininterval=1.0)):
             im = im.to(output_device)
             label = label.to(output_device)
             im2 = resize(im, 128, antialias=False)
@@ -276,7 +276,7 @@ if __name__ == "__main__":
                 newfe.eval()
                 train_samples = 0
                 ssimloss = 0.0
-                for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train")):
+                for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
                     im2 = resize(im, 128, antialias=False)
@@ -295,7 +295,7 @@ if __name__ == "__main__":
 
                 test_samples = 0
                 ssimloss = 0.0
-                for i, (im, label) in enumerate(tqdm(test_dl, desc=f"test")):
+                for i, (im, label) in enumerate(tqdm(test_dl, desc=f"test", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
                     im2 = resize(im, 128, antialias=False)

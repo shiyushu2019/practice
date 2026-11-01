@@ -203,13 +203,13 @@ if __name__ == "__main__":
 
     # 训练主循环：先由特征提取器得到隐表示，再由反演器重建图像；
     # 使用 SSIM 作为重建质量衡量指标，并定期保存中间结果和模型权重。
-    for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch"):
+    for epoch_id in tqdm(range(1, train_epoches + 1), desc="Total Epoch",mininterval=1.0,):
         feature_extractor.train()
         myinversion.train()
         epoch_loss = 0.0
         epoch_ssim = 0.0
         epoch_samples = 0
-        for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ")):
+        for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ", mininterval=1.0)):
             im = im.to(output_device)
             label = label.to(output_device)
             bs, c, h, w = im.shape
@@ -247,7 +247,7 @@ if __name__ == "__main__":
                 myinversion.eval()
                 train_samples = 0
                 ssimloss = 0.0
-                for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train")):
+                for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape
@@ -264,7 +264,7 @@ if __name__ == "__main__":
 
                 test_samples = 0
                 ssimloss = 0.0
-                for i, (im, label) in enumerate(tqdm(test_dl, desc=f"test")):
+                for i, (im, label) in enumerate(tqdm(test_dl, desc=f"test", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
                     bs, c, h, w = im.shape
