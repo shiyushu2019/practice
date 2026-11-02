@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 import os
+import copy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Subset
 from torchvision.datasets import ImageFolder
 from torchvision.transforms.v2 import Compose, Resize, ToImage, ToDtype
 from torchvision.transforms.v2.functional import resize
-from torchplus.models import ResNet50FE_Dim, resnet50fe
-from torchplus.utils import Init
+from torchplus.models import resnet50fe
 from PIL import Image
 import numpy as np
 
@@ -87,8 +87,7 @@ def save_compressed_image(tensor_img, save_path, quality=50):
 
 def static_quantize_newfe(model, calib_dataloader):
     print("  Static quantizing NewFE...")
-    model.eval()
-    model.cpu()
+    model = copy.deepcopy(model).eval().cpu()
     model.qconfig = torch.ao.quantization.get_default_qconfig('fbgemm')
     torch.ao.quantization.prepare(model, inplace=True)
     print("    Calibrating...")
@@ -108,37 +107,32 @@ def dynamic_quantize_aeinversion(model):
     model_quantized = torch.quantization.quantize_dynamic(
         model, {nn.ConvTranspose2d, nn.Linear}, dtype=torch.qint8
     )
-    print("    AEInversion dynamic quantization done")
+    if not any(
+        type(module).__module__.startswith("torch.ao.nn.quantized")
+        for module in model_quantized.modules()
+    ):
+        print("  No AEInversion layers were converted by this PyTorch backend.")
     return model_quantized
 
 
 # 该脚本用于加载训练好的特征提取器和反演器，
 # 通过对 NewFE / AEInversion 做量化并比较模型体积与重建效果。
 if __name__ == "__main__":
+    seed = 9970
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     batch_size = 16
     root_dir = "./checkpoints/mixed_quantized"
-
     target_feature_pkl = "./checkpoints/resnetface/feature_extractor_48.pkl"
     ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
     newfe_pkl = "./checkpoints/nattackface/newfe_100.pkl"
-
     dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub/"
     h, w = 224, 224
 
-    init = Init(
-        seed=9970,
-        log_root_dir=root_dir,
-        sep=False,
-        backup_filename=__file__,
-        tensorboard=True,
-        comment="mixed quantization + individual compressed images",
-    )
-
-    device = torch.device("cpu")
-    print(f"Using device: {device}")
-
-    writer = init.get_writer()
-    log_dir = init.get_log_dir()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    log_dir = root_dir
+    os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
     transform = Compose([
@@ -149,32 +143,40 @@ if __name__ == "__main__":
 
     ds = ImageFolder(root=dataset_dir, transform=transform)
     ds_len = len(ds)
-    # 数据集按 1:1 划分为隐私集和辅助集；其中辅助集再继续拆成训练/测试集，
-    # 方便在量化和重建实验中进行校准与评估。
-    priv_ds, aux_ds = random_split(ds, [ds_len * 1 // 2, ds_len - ds_len * 1 // 2])
-    aux_ds_len = len(aux_ds)
-    aux_train_ds, aux_test_ds = random_split(
-        aux_ds, [aux_ds_len * 6 // 7, aux_ds_len - aux_ds_len * 6 // 7]
-    )
-    train_ds = aux_train_ds
-    test_ds = aux_test_ds
+    test_size = ds_len // 10
+    train_size = ds_len - test_size
+    third = train_size // 3
+    shuffled_indices = torch.randperm(
+        ds_len, generator=torch.Generator().manual_seed(seed)
+    ).tolist()
+    idx_part3 = shuffled_indices[2 * third : train_size]    # 当前nattackface.py
+    idx_test = shuffled_indices[train_size:]                # 全局测试集
+
+    train_ds=Subset(ds, idx_part3)
+    test_ds=Subset(ds, idx_test)
+
+    train_ds_len = len(train_ds)
+    test_ds_len = len(test_ds)
+    print(train_ds_len)
+    print(test_ds_len)
 
     temp_dl = DataLoader(
-        dataset=train_ds, batch_size=32, shuffle=True,
-        num_workers=data_workers, drop_last=False, pin_memory=False,
+        dataset=train_ds,
+        batch_size=32,
+        shuffle=True,
+        num_workers=data_workers,
+        drop_last=False,
+        pin_memory=False,
     )
 
-    train_dl = DataLoader(
-        dataset=train_ds, batch_size=batch_size, shuffle=False,
-        num_workers=data_workers, drop_last=False, pin_memory=False,
-    )
+
     test_dl = DataLoader(
-        dataset=test_ds, batch_size=batch_size, shuffle=False,
-        num_workers=data_workers, drop_last=False, pin_memory=False,
-    )
-    priv_dl = DataLoader(
-        dataset=priv_ds, batch_size=batch_size, shuffle=False,
-        num_workers=data_workers, drop_last=False, pin_memory=False,
+        dataset=test_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=data_workers,
+        drop_last=False,
+        pin_memory=True,
     )
 
     print("\n" + "="*50)
@@ -261,21 +263,22 @@ if __name__ == "__main__":
     total_int8 = int8_size_newfe + int8_size_ae
     print(f"Total: FP32={total_fp32:.2f}MB, INT8={total_int8:.2f}MB, ratio={total_fp32/total_int8:.1f}x")
 
-    # ��������������ļ��нṹ���������ͼƬ��
+    # 导出重建结果图片并压缩保存。
     print("\n" + "="*50)
     print("Exporting results (all images, compressed)...")
     print("="*50)
 
-    JPEG_QUALITY = 50  # JPEG����
+    JPEG_QUALITY = 50  # JPEG 图片质量
 
     target_feature_extractor = target_feature_extractor.to(device)
-    newfe_quantized = newfe_quantized.to(device)
-    aeinversion_quantized = aeinversion_quantized.to(device)
+    newfe_quantized = newfe_quantized.cpu()
+    aeinversion_quantized = aeinversion_quantized.cpu()
 
+    @torch.no_grad()
     def process_and_save(dataloader, dataset_name):
         print(f"\n  Processing {dataset_name}...")
 
-        # ����Ŀ¼
+        # 创建输入和输出目录。
         input_dir = os.path.join(log_dir, dataset_name, "input")
         output_dir = os.path.join(log_dir, dataset_name, "output")
         os.makedirs(input_dir, exist_ok=True)
@@ -287,20 +290,20 @@ if __name__ == "__main__":
         for i, (im, label) in enumerate(dataloader):
             im = im.to(device)
             im2 = resize(im, 128, antialias=False)
-            target_feature = target_feature_extractor(im)
-            target_feature = newfe_quantized(target_feature)
+            target_features = target_feature_extractor(im).cpu()
+            target_feature = newfe_quantized(target_features)
             target_feature = F.normalize(target_feature, dim=1)
             rim = aeinversion_quantized(target_feature)
 
             bs = rim.shape[0]
             for j in range(bs):
-                # ��������ͼƬ��PNG��ʽ������������
+                # 保存输入图片为 PNG 格式。
                 input_path = os.path.join(input_dir, f"input_{batch_idx}_{j}.png")
                 input_np = (im2[j].cpu().numpy() * 255).astype(np.uint8)
                 input_np = np.transpose(input_np, (1, 2, 0))
                 Image.fromarray(input_np).save(input_path)
 
-                # �������ͼƬ��JPEGѹ����
+                # 保存重建图片为 JPEG 格式。
                 output_path = os.path.join(output_dir, f"output_{batch_idx}_{j}.jpg")
                 save_compressed_image(rim[j], output_path, quality=JPEG_QUALITY)
 
@@ -308,25 +311,21 @@ if __name__ == "__main__":
 
             batch_idx += 1
 
-            # ÿ����10��batch��ӡһ�ν���
+            # 每处理 10 个 batch 打印一次进度。
             if batch_idx % 10 == 0:
                 print(f"    Processed {batch_idx} batches, {total_images} images")
 
         print(f"    Completed {dataset_name}: {total_images} images saved")
         return total_images
 
-    # ���������������ݼ�
-    train_count = process_and_save(train_dl, "train")
+    # 分别处理训练集和测试集。
     test_count = process_and_save(test_dl, "test")
-    priv_count = process_and_save(priv_dl, "priv")
 
-    print(f"\n  Total images saved: {train_count + test_count + priv_count}")
+    print(f"\n  Total images saved: {test_count}")
 
-    # �����������ģ��
+    # 保存量化模型。
     torch.save(newfe_quantized.cpu().state_dict(), f"{log_dir}/newfe_static_quantized.pkl")
     torch.save(aeinversion_quantized.cpu().state_dict(), f"{log_dir}/aeinversion_dynamic_quantized.pkl")
-
-    writer.close()
 
     print("\n" + "="*50)
     print("Mixed Quantization + Full Output Completed!")
