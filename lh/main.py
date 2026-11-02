@@ -100,19 +100,12 @@ def static_quantize_newfe(model, calib_dataloader):
     return model
 
 
-def dynamic_quantize_aeinversion(model):
-    print("  Dynamic quantizing AEInversion...")
-    model.eval()
-    model.cpu()
-    model_quantized = torch.quantization.quantize_dynamic(
-        model, {nn.ConvTranspose2d, nn.Linear}, dtype=torch.qint8
-    )
-    if not any(
-        type(module).__module__.startswith("torch.ao.nn.quantized")
-        for module in model_quantized.modules()
-    ):
-        print("  No AEInversion layers were converted by this PyTorch backend.")
-    return model_quantized
+def quantize_aeinversion_fp16(model, device):
+    print("  Converting AEInversion to FP16...")
+    if device.type == "cuda":
+        return copy.deepcopy(model).eval().to(device=device, dtype=torch.float16)
+    print("  CUDA unavailable; keeping AEInversion in FP32.")
+    return copy.deepcopy(model).eval().to(device=device)
 
 
 # 该脚本用于加载训练好的特征提取器和反演器，
@@ -234,11 +227,11 @@ if __name__ == "__main__":
     print("="*50)
     newfe_quantized = static_quantize_newfe(newfe, calib_dl)
 
-    # 对 AEInversion 执行动态量化，适合卷积转置层在推理时的低精度压缩。
+    # 将 AEInversion 转为 FP16，降低权重和推理激活的存储占用。
     print("\n" + "="*50)
-    print("Quantizing AEInversion (Dynamic)...")
+    print("Quantizing AEInversion (FP16)...")
     print("="*50)
-    aeinversion_quantized = dynamic_quantize_aeinversion(aeinversion)
+    aeinversion_quantized = quantize_aeinversion_fp16(aeinversion, device)
 
     # 对比量化前后模型体积，观察压缩效果和总体节省比例。
     print("\n" + "="*50)
@@ -256,12 +249,13 @@ if __name__ == "__main__":
     print(f"NewFE: FP32={fp32_size_newfe:.2f}MB, INT8={int8_size_newfe:.2f}MB, ratio={fp32_size_newfe/int8_size_newfe:.1f}x")
 
     fp32_size_ae = get_model_size_mb(aeinversion.cpu())
-    int8_size_ae = get_model_size_mb(aeinversion_quantized.cpu())
-    print(f"AEInversion: FP32={fp32_size_ae:.2f}MB, INT8={int8_size_ae:.2f}MB, ratio={fp32_size_ae/int8_size_ae:.1f}x")
+    reduced_size_ae = get_model_size_mb(aeinversion_quantized.cpu())
+    ae_precision = "FP16" if device.type == "cuda" else "FP32"
+    print(f"AEInversion: FP32={fp32_size_ae:.2f}MB, {ae_precision}={reduced_size_ae:.2f}MB, ratio={fp32_size_ae/reduced_size_ae:.1f}x")
 
     total_fp32 = fp32_size_newfe + fp32_size_ae
-    total_int8 = int8_size_newfe + int8_size_ae
-    print(f"Total: FP32={total_fp32:.2f}MB, INT8={total_int8:.2f}MB, ratio={total_fp32/total_int8:.1f}x")
+    total_reduced = int8_size_newfe + reduced_size_ae
+    print(f"Total: FP32={total_fp32:.2f}MB, NewFE INT8 + AEInversion {ae_precision}={total_reduced:.2f}MB, ratio={total_fp32/total_reduced:.1f}x")
 
     # 导出重建结果图片并压缩保存。
     print("\n" + "="*50)
@@ -272,7 +266,7 @@ if __name__ == "__main__":
 
     target_feature_extractor = target_feature_extractor.to(device)
     newfe_quantized = newfe_quantized.cpu()
-    aeinversion_quantized = aeinversion_quantized.cpu()
+    aeinversion_quantized = aeinversion_quantized.to(device)
 
     @torch.no_grad()
     def process_and_save(dataloader, dataset_name):
@@ -293,7 +287,8 @@ if __name__ == "__main__":
             target_features = target_feature_extractor(im).cpu()
             target_feature = newfe_quantized(target_features)
             target_feature = F.normalize(target_feature, dim=1)
-            rim = aeinversion_quantized(target_feature)
+            decoder_dtype = next(aeinversion_quantized.parameters()).dtype
+            rim = aeinversion_quantized(target_feature.to(device=device, dtype=decoder_dtype))
 
             bs = rim.shape[0]
             for j in range(bs):
@@ -331,7 +326,7 @@ if __name__ == "__main__":
     print("Mixed Quantization + Full Output Completed!")
     print(f"Results saved to: {log_dir}")
     print(f"  - NewFE: Static Quantization (INT8)")
-    print(f"  - AEInversion: Dynamic Quantization (INT8)")
+    print(f"  - AEInversion: {ae_precision}")
     print(f"  - Output images: JPEG quality={JPEG_QUALITY}")
     print("")
     print("="*50)
