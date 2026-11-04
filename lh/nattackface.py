@@ -258,7 +258,7 @@ if __name__ == "__main__":
                 for i, (im, label) in enumerate(tqdm(train_dl1, desc=f"train", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
-                    im2 = resize(im, 128, antialias=False)
+                    im2 = im
                     bs, c, h, w = im.shape
                     target_feature = target_feature_extractor.forward(im)
                     target_feature = newfe.forward(target_feature)
@@ -277,7 +277,7 @@ if __name__ == "__main__":
                 for i, (im, label) in enumerate(tqdm(test_dl, desc=f"test", mininterval=1.0)):
                     im = im.to(output_device)
                     label = label.to(output_device)
-                    im2 = resize(im, 128, antialias=False)
+                    im2 = im
                     bs, c, h, w = im.shape
                     target_feature = target_feature_extractor.forward(im)
                     target_feature = newfe.forward(target_feature)

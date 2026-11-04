@@ -184,7 +184,7 @@ if __name__ == "__main__":
         image_index = 0
         for im, _ in tqdm(sample_dl, desc="save test pairs", mininterval=1.0):
             im = im.to(output_device)
-            im2 = resize(im, 128, antialias=False)
+            im2 =im
             feature8192 = feature_extractor.forward(im2)
             feature8192 = F.normalize(feature8192)
             rim = aeinversion.forward(feature8192)
