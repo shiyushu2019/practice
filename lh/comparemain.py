@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import *
 from tqdm import tqdm
+from piq import SSIMLoss
 from torchplus.models import resnet50fe
 from torchplus.utils import (
     Init,
@@ -165,6 +166,8 @@ if __name__ == "__main__":
     # Evaluate cosine similarity on the full shared test set.
     cosine_sum = 0.0
     quantized_cosine_sum = 0.0
+    ssim_sum = 0.0
+    quantized_ssim_sum = 0.0
     evaluated_samples = 0
     with torch.no_grad():
         for im, _ in tqdm(test_dl, desc="evaluate test", mininterval=1.0):
@@ -188,13 +191,19 @@ if __name__ == "__main__":
                 rim_quantized.flatten(start_dim=1),
                 dim=1,
             ).sum().item()
+            ssim_sum += (1 - SSIMLoss()(rim, im2)).item() * im.size(0)
+            quantized_ssim_sum += (
+                1 - SSIMLoss()(rim_quantized, im2)
+            ).item() * im.size(0)
             evaluated_samples += im.size(0)
 
     print("test average cosine similarity", cosine_sum / evaluated_samples)
+    print("test average SSIM", ssim_sum / evaluated_samples)
     print(
         "quantized test average cosine similarity",
         quantized_cosine_sum / evaluated_samples,
     )
+    print("quantized test average SSIM", quantized_ssim_sum / evaluated_samples)
 
     sample_count = min(100, test_ds_len)
     sample_indices = torch.randperm(
