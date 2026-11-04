@@ -35,6 +35,7 @@ if __name__ == "__main__":
     from datasplit import(
             test_ds
     )
+    test_ds_len=len(test_ds)
 
     test_dl = DataLoader(
         dataset=test_ds,
