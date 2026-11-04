@@ -6,8 +6,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split,Subset
 from torchvision.datasets import *
-from torchvision.transforms.v2 import *
-from torchvision.transforms.v2.functional import *
 from tqdm import tqdm
 from torchplus.utils import Init, class_split, save_excel, save_image2
 from torchplus.datasets import PreProcessFolder
@@ -37,31 +35,16 @@ if __name__ == "__main__":
 
     data_workers = 2
 
-    transform = Compose(
-        [
-            Resize((h, w)),
-            RandomHorizontalFlip(),
-            ToImage(),
-            ToDtype(torch.float, scale=True),
-        ]
+    from datasplit import(
+            part2_ds,
+            test_ds
     )
-    
-    ds = ImageFolder(root=dataset_dir, transform=transform)
+    train_ds=part2_ds
+    train_ds_len = len(train_ds)
+    test_ds_len = len(test_ds)
+    print(train_ds_len)
+    print(test_ds_len)
 
-    ds_len = len(ds)
-    test_size = ds_len // 10
-    train_size = ds_len - test_size
-    third = train_size // 3
-    shuffled_indices = torch.randperm(
-        ds_len, generator=torch.Generator().manual_seed(seed)
-    ).tolist()
-    idx_part1 = shuffled_indices[:third]                    # resnetface.py
-    idx_part2 = shuffled_indices[third : 2 * third]         # 当前aeface.py
-    idx_part3 = shuffled_indices[2 * third : train_size]    # nattackface.py
-    idx_test = shuffled_indices[train_size:]                # 全局测试集
-
-    train_ds=Subset(ds, idx_part2)
-    test_ds=Subset(ds, idx_test)
     train_dl = DataLoader(
         dataset=train_ds,
         batch_size=batch_size,

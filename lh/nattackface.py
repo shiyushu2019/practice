@@ -5,8 +5,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split, Subset
 from torchvision.datasets import *
-from torchvision.transforms.v2 import *
-from torchvision.transforms.v2.functional import *
 from tqdm import tqdm
 from torchplus.utils import Init, save_image2
 from torchplus.models import ResNet50FE_Dim, resnet50fe
@@ -25,8 +23,8 @@ if __name__ == "__main__":
     ae_feature_pkl = "./checkpoints/aeface/feature_extractor_100.pkl"
     ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
     dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
-    h = 224
-    w = 224
+    h = 128
+    w = 128
 
     output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_dir = root_dir
@@ -37,30 +35,11 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(log_dir, "output"), exist_ok=True)
     data_workers = 2
 
-    transform = Compose(
-        [
-            Resize((h, w)),
-            ToImage(),
-            ToDtype(torch.float, scale=True),
-        ]
+    from datasplit import(
+            part2_ds,
+            test_ds
     )
-
-    ds = ImageFolder(root=dataset_dir, transform=transform)
-    ds_len = len(ds)
-    test_size = ds_len // 10
-    train_size = ds_len - test_size
-    third = train_size // 3
-    shuffled_indices = torch.randperm(
-        ds_len, generator=torch.Generator().manual_seed(seed)
-    ).tolist()
-    idx_part1 = shuffled_indices[:third]                    # resnetface.py
-    idx_part2 = shuffled_indices[third : 2 * third]         # aeface.py train
-    idx_part3 = shuffled_indices[2 * third : train_size]    # 当前nattackface.py
-    idx_test = shuffled_indices[train_size:]                # 全局测试集
-
-    train_ds=Subset(ds, idx_part3)
-    test_ds=Subset(ds, idx_test)
-    
+    train_ds=part2_ds
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
     print(train_ds_len)
@@ -242,8 +221,8 @@ if __name__ == "__main__":
         epoch_samples = 0
         for i, (im, label) in enumerate(tqdm(train_dl, desc=f"epoch {epoch_id} ", mininterval=1.0)):
             im = im.to(output_device)
+            im2 = im
             label = label.to(output_device)
-            im2 = resize(im, 128, antialias=False)
             bs, c, h, w = im.shape
             optimizer.zero_grad()
             target_feature = target_feature_extractor.forward(im)

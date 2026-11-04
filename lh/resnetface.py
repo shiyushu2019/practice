@@ -5,8 +5,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split,Subset
 from torchvision.datasets import *
-from torchvision.transforms.v2 import *
-from torchvision.transforms.v2.functional import *
 from torchvision.models import ResNet50_Weights
 from tqdm import tqdm
 from torchplus.utils import ClassificationAccuracy
@@ -23,8 +21,8 @@ if __name__ == "__main__":
     # root_dir = "./log/paper5w/logZZPMAIN.resnetface"
     # 训练数据来自 FaceScrub，统一 resize 到 224x224，并按 6:1 的比例切分训练/测试集。
     dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub"
-    h = 224
-    w = 224
+    h = 128
+    w = 128
 
     output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_dir = "./checkpoints/resnetface"
@@ -34,29 +32,12 @@ if __name__ == "__main__":
 
     data_workers = 2
 
-    transform = Compose(
-        [
-            Resize((h, w)),
-            RandomHorizontalFlip(),
-            ToImage(),
-            ToDtype(torch.float, scale=True),
-        ]
+    from datasplit import(
+            ds,
+            part1_ds,
+            test_ds
     )
-    ds = ImageFolder(root=dataset_dir, transform=transform)
-    ds_len = len(ds)
-    test_size = ds_len // 10
-    train_size = ds_len - test_size
-    third = train_size // 3
-    shuffled_indices = torch.randperm(
-        ds_len, generator=torch.Generator().manual_seed(seed)
-    ).tolist()
-    idx_part1 = shuffled_indices[:third]                    # 当前resnetface.py
-    idx_part2 = shuffled_indices[third : 2 * third]         # aeface.py
-    idx_part3 = shuffled_indices[2 * third : train_size]    # nattackface.py
-    idx_test = shuffled_indices[train_size:]                # 全局测试集
-
-    train_ds=Subset(ds, idx_part1)
-    test_ds=Subset(ds, idx_test)
+    train_ds=part1_ds
     class_num = len(ds.classes)
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)

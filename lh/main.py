@@ -6,8 +6,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset, Subset
 from torchvision.datasets import ImageFolder
-from torchvision.transforms.v2 import Compose, Resize, ToImage, ToDtype
-from torchvision.transforms.v2.functional import resize
 from torchplus.models import resnet50fe
 from PIL import Image
 import numpy as np
@@ -121,38 +119,22 @@ if __name__ == "__main__":
     ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
     newfe_pkl = "./checkpoints/nattackface/newfe_100.pkl"
     dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub/"
-    h, w = 224, 224
+    h, w = 128,128
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_dir = root_dir
     os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
-    transform = Compose([
-        Resize((h, w)),
-        ToImage(),
-        ToDtype(torch.float, scale=True),
-    ])
-
-    ds = ImageFolder(root=dataset_dir, transform=transform)
-    ds_len = len(ds)
-    test_size = ds_len // 10
-    train_size = ds_len - test_size
-    third = train_size // 3
-    shuffled_indices = torch.randperm(
-        ds_len, generator=torch.Generator().manual_seed(seed)
-    ).tolist()
-    idx_part3 = shuffled_indices[2 * third : train_size]    # 当前nattackface.py
-    idx_test = shuffled_indices[train_size:]                # 全局测试集
-
-    train_ds=Subset(ds, idx_part3)
-    test_ds=Subset(ds, idx_test)
-
+    from datasplit import(
+            part2_ds,
+            test_ds
+    )
+    train_ds=part2_ds
     train_ds_len = len(train_ds)
     test_ds_len = len(test_ds)
     print(train_ds_len)
     print(test_ds_len)
-
     temp_dl = DataLoader(
         dataset=train_ds,
         batch_size=32,
@@ -161,7 +143,6 @@ if __name__ == "__main__":
         drop_last=False,
         pin_memory=False,
     )
-
 
     test_dl = DataLoader(
         dataset=test_ds,
@@ -184,7 +165,7 @@ if __name__ == "__main__":
     )
     print("  Loaded target model")
 
-    test_im = torch.randn(1, 3, 224, 224).to(device)
+    test_im = torch.randn(1, 3, 128, 128).to(device)
     with torch.no_grad():
         actual_dim = target_feature_extractor(test_im).shape[-1]
     print(f"  Actual feature dimension: {actual_dim}")
@@ -283,7 +264,7 @@ if __name__ == "__main__":
 
         for i, (im, label) in enumerate(dataloader):
             im = im.to(device)
-            im2 = resize(im, 128, antialias=False)
+            im2 = im
             target_features = target_feature_extractor(im).cpu()
             target_feature = newfe_quantized(target_features)
             target_feature = F.normalize(target_feature, dim=1)

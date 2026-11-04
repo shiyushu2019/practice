@@ -4,8 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import *
-from torchvision.transforms.v2 import *
-from torchvision.transforms.v2.functional import *
 from tqdm import tqdm
 from torchplus.models import ResNet50FE_Dim, resnet50fe
 from torchplus.utils import (
@@ -24,39 +22,19 @@ if __name__ == "__main__":
     ae_inv_pkl = "./checkpoints/aeface/myinversion_100.pkl"
     newfe_pkl = "./checkpoints/nattackface/newfe_100.pkl"
     dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub/"
-    h = 224
-    w = 224
+    h = 128
+    w = 128
 
     output_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log_dir = root_dir
     os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
-    eval_transform = Compose(
-        [
-            Resize((h, w)),
-            ToImage(),
-            ToDtype(torch.float, scale=True),
-        ]
+    from datasplit import(
+            test_ds
     )
-
-    ds = ImageFolder(root=dataset_dir, transform=eval_transform)
-    ds_len = len(ds)
-    test_size = ds_len // 10
-    train_size = ds_len - test_size
-    third = train_size // 3
-    shuffled_indices = torch.randperm(
-        ds_len, generator=torch.Generator().manual_seed(seed)
-    ).tolist()
-    idx_part1 = shuffled_indices[:third]                    # resnetface.py
-    idx_part2 = shuffled_indices[third : 2 * third]         # aeface.py
-    idx_part3 = shuffled_indices[2 * third : train_size]    # nattackface.py
-    idx_test = shuffled_indices[train_size:]
-    test_ds = Subset(ds, idx_test)
     test_ds_len = len(test_ds)
-
     print(test_ds_len)
-
     test_dl = DataLoader(
         dataset=test_ds,
         batch_size=batch_size,
@@ -154,7 +132,7 @@ if __name__ == "__main__":
     with torch.no_grad():
         for im, _ in tqdm(test_dl, desc="evaluate test", mininterval=1.0):
             im = im.to(output_device)
-            im2 = resize(im, 128, antialias=False)
+            im2 = im
             target_feature8192 = target_feature_extractor.forward(im)
             target_feature8192 = newfe.forward(target_feature8192)
             target_feature8192 = F.normalize(target_feature8192)
