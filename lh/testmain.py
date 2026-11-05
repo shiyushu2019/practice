@@ -13,6 +13,7 @@ from torchplus.utils import (
 )
 
 if __name__ == "__main__":
+    torch.backends.quantized.engine = "fbgemm"
     batch_size = 16
     seed = 9970
     torch.manual_seed(seed)

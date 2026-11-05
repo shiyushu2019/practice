@@ -120,6 +120,7 @@ def static_quantize_aeinversion(model, calib_dataloader):
 # 该脚本用于加载训练好的特征提取器和反演器，
 # 通过对 NewFE / AEInversion 做量化并比较模型体积与重建效果。
 if __name__ == "__main__":
+    torch.backends.quantized.engine = "fbgemm"
     seed = 9970
     torch.manual_seed(seed)
     if torch.cuda.is_available():
