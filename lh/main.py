@@ -31,10 +31,12 @@ class QuantizableNewFE(nn.Module):
         return x
 
 
-class AEInversionForDynamic(nn.Module):
+class AEInversionForStatic(nn.Module):
     def __init__(self, in_channels):
         super().__init__()
         self.in_channels = in_channels
+        self.quant = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
         self.deconv1 = nn.ConvTranspose2d(in_channels, 512, 4, 1)
         self.deconv2 = nn.ConvTranspose2d(512, 256, 4, 2, 1)
         self.deconv3 = nn.ConvTranspose2d(256, 128, 4, 2, 1)
@@ -54,6 +56,7 @@ class AEInversionForDynamic(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
+        x = self.quant(x)
         x = x.view(-1, self.in_channels, 1, 1)
         x = self.deconv1(x)
         x = self.bn1(x)
@@ -72,7 +75,7 @@ class AEInversionForDynamic(nn.Module):
         x = self.relu5(x)
         x = self.deconv6(x)
         x = self.sigmoid(x)
-        return x
+        return self.dequant(x)
 
 
 def save_compressed_image(tensor_img, save_path, quality=50):
@@ -83,27 +86,35 @@ def save_compressed_image(tensor_img, save_path, quality=50):
     return os.path.getsize(save_path)
 
 
-def static_quantize_newfe(model, calib_dataloader):
-    print("  Static quantizing NewFE...")
+def dynamic_quantize_newfe(model):
+    print("  Dynamic quantizing NewFE...")
+    model = copy.deepcopy(model).eval().cpu()
+    model = torch.ao.quantization.quantize_dynamic(
+        model, {nn.Linear}, dtype=torch.qint8
+    )
+    print("    NewFE dynamic quantization done")
+    return model
+
+
+def static_quantize_aeinversion(model, calib_dataloader):
+    print("  Static quantizing AEInversion...")
     model = copy.deepcopy(model).eval().cpu()
     model.qconfig = torch.ao.quantization.get_default_qconfig('fbgemm')
+    for module in model.modules():
+        if isinstance(module, nn.ConvTranspose2d):
+            module.qconfig = torch.ao.quantization.QConfig(
+                activation=model.qconfig.activation,
+                weight=torch.ao.quantization.default_weight_observer,
+            )
     torch.ao.quantization.prepare(model, inplace=True)
-    print("    Calibrating...")
+    print("    Calibrating AEInversion...")
     with torch.no_grad():
         for batch in calib_dataloader:
             x = batch[0]
             model(x)
     torch.ao.quantization.convert(model, inplace=True)
-    print("    NewFE static quantization done")
+    print("    AEInversion static quantization done")
     return model
-
-
-def quantize_aeinversion_fp16(model, device):
-    print("  Converting AEInversion to FP16...")
-    if device.type == "cuda":
-        return copy.deepcopy(model).eval().to(device=device, dtype=torch.float16)
-    print("  CUDA unavailable; keeping AEInversion in FP32.")
-    return copy.deepcopy(model).eval().to(device=device)
 
 
 # 该脚本用于加载训练好的特征提取器和反演器，
@@ -174,7 +185,7 @@ if __name__ == "__main__":
     newfe.load_state_dict(torch.load(open(newfe_pkl, "rb"), map_location=device))
     print("  Loaded newfe model")
 
-    aeinversion = AEInversionForDynamic(8192).train(False).to(device)
+    aeinversion = AEInversionForStatic(8192).train(False).to(device)
     aeinversion.load_state_dict(
         torch.load(open(ae_inv_pkl, "rb"), map_location=device)
     )
@@ -202,17 +213,26 @@ if __name__ == "__main__":
 
     calib_dl = DataLoader(TensorDataset(features), batch_size=32, shuffle=False)
 
-    # 针对 NewFE 做静态量化：使用校准集统计量化参数，压缩模型权重。
+    # 对 NewFE 做动态量化，并生成 AEInversion 静态量化所需的校准输入。
     print("\n" + "="*50)
-    print("Quantizing NewFE (Static)...")
+    print("Quantizing NewFE (Dynamic)...")
     print("="*50)
-    newfe_quantized = static_quantize_newfe(newfe, calib_dl)
+    newfe_quantized = dynamic_quantize_newfe(newfe)
+    with torch.no_grad():
+        decoder_features = torch.cat(
+            [F.normalize(newfe_quantized(batch[0])) for batch in calib_dl], dim=0
+        )
+    decoder_calib_dl = DataLoader(
+        TensorDataset(decoder_features), batch_size=32, shuffle=False
+    )
 
-    # 将 AEInversion 转为 FP16，降低权重和推理激活的存储占用。
+    # 对 AEInversion 做静态量化。
     print("\n" + "="*50)
-    print("Quantizing AEInversion (FP16)...")
+    print("Quantizing AEInversion (Static)...")
     print("="*50)
-    aeinversion_quantized = quantize_aeinversion_fp16(aeinversion, device)
+    aeinversion_quantized = static_quantize_aeinversion(
+        aeinversion, decoder_calib_dl
+    )
 
     # 对比量化前后模型体积，观察压缩效果和总体节省比例。
     print("\n" + "="*50)
@@ -231,12 +251,11 @@ if __name__ == "__main__":
 
     fp32_size_ae = get_model_size_mb(aeinversion.cpu())
     reduced_size_ae = get_model_size_mb(aeinversion_quantized.cpu())
-    ae_precision = "FP16" if device.type == "cuda" else "FP32"
-    print(f"AEInversion: FP32={fp32_size_ae:.2f}MB, {ae_precision}={reduced_size_ae:.2f}MB, ratio={fp32_size_ae/reduced_size_ae:.1f}x")
+    print(f"AEInversion: FP32={fp32_size_ae:.2f}MB, INT8={reduced_size_ae:.2f}MB, ratio={fp32_size_ae/reduced_size_ae:.1f}x")
 
     total_fp32 = fp32_size_newfe + fp32_size_ae
     total_reduced = int8_size_newfe + reduced_size_ae
-    print(f"Total: FP32={total_fp32:.2f}MB, NewFE INT8 + AEInversion {ae_precision}={total_reduced:.2f}MB, ratio={total_fp32/total_reduced:.1f}x")
+    print(f"Total: FP32={total_fp32:.2f}MB, NewFE INT8 + AEInversion INT8={total_reduced:.2f}MB, ratio={total_fp32/total_reduced:.1f}x")
 
     # 导出重建结果图片并压缩保存。
     print("\n" + "="*50)
@@ -247,7 +266,6 @@ if __name__ == "__main__":
 
     target_feature_extractor = target_feature_extractor.to(device)
     newfe_quantized = newfe_quantized.cpu()
-    aeinversion_quantized = aeinversion_quantized.to(device)
 
     @torch.no_grad()
     def process_and_save(dataloader, dataset_name):
@@ -268,8 +286,7 @@ if __name__ == "__main__":
             target_features = target_feature_extractor(im).cpu()
             target_feature = newfe_quantized(target_features)
             target_feature = F.normalize(target_feature, dim=1)
-            decoder_dtype = next(aeinversion_quantized.parameters()).dtype
-            rim = aeinversion_quantized(target_feature.to(device=device, dtype=decoder_dtype))
+            rim = aeinversion_quantized(target_feature)
 
             bs = rim.shape[0]
             for j in range(bs):
@@ -300,14 +317,14 @@ if __name__ == "__main__":
     print(f"\n  Total images saved: {test_count}")
 
     # 保存量化模型。
-    torch.save(newfe_quantized.cpu().state_dict(), f"{log_dir}/newfe_static_quantized.pkl")
-    torch.save(aeinversion_quantized.cpu().state_dict(), f"{log_dir}/aeinversion_dynamic_quantized.pkl")
+    torch.save(newfe_quantized.cpu().state_dict(), f"{log_dir}/newfe_dynamic_quantized.pkl")
+    torch.save(aeinversion_quantized.cpu().state_dict(), f"{log_dir}/aeinversion_static_quantized.pkl")
 
     print("\n" + "="*50)
     print("Mixed Quantization + Full Output Completed!")
     print(f"Results saved to: {log_dir}")
-    print(f"  - NewFE: Static Quantization (INT8)")
-    print(f"  - AEInversion: {ae_precision}")
+    print(f"  - NewFE: Dynamic Quantization (INT8)")
+    print(f"  - AEInversion: Static Quantization (INT8)")
     print(f"  - Output images: JPEG quality={JPEG_QUALITY}")
     print("")
     print("="*50)

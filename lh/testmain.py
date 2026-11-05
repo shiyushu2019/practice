@@ -20,8 +20,8 @@ if __name__ == "__main__":
         torch.cuda.manual_seed_all(seed)
     root_dir = "./checkpoints/testmain"
     target_feature_pkl = "./checkpoints/resnetface/feature_extractor_48.pkl"
-    newfe_pkl = "./checkpoints/mixed_quantized/newfe_static_quantized.pkl"
-    ae_inv_pkl = "./checkpoints/mixed_quantized/aeinversion_dynamic_quantized.pkl"
+    newfe_pkl = "./checkpoints/mixed_quantized/newfe_dynamic_quantized.pkl"
+    ae_inv_pkl = "./checkpoints/mixed_quantized/aeinversion_static_quantized.pkl"
     dataset_dir = "/data1/dataset/jssnu005/sys/lh/FaceScrub/"
     h = 128
     w = 128
@@ -68,6 +68,8 @@ if __name__ == "__main__":
         def __init__(self, in_channels):
             super(AEInversion, self).__init__()
             self.in_channels = in_channels
+            self.quant = torch.ao.quantization.QuantStub()
+            self.dequant = torch.ao.quantization.DeQuantStub()
             self.deconv1 = nn.ConvTranspose2d(self.in_channels, 512, 4, 1)
             self.deconv2 = nn.ConvTranspose2d(512, 256, 4, 2, 1)
             self.deconv3 = nn.ConvTranspose2d(256, 128, 4, 2, 1)
@@ -87,6 +89,7 @@ if __name__ == "__main__":
             self.sigmod = nn.Sigmoid()
 
         def forward(self, x):
+            x = self.quant(x)
             x = x.view(-1, self.in_channels, 1, 1)
             x = self.deconv1(x)
             x = self.bn1(x)
@@ -105,7 +108,7 @@ if __name__ == "__main__":
             x = self.relu5(x)
             x = self.deconv6(x)
             x = self.sigmod(x)
-            return x
+            return self.dequant(x)
 
     target_feature_extractor = resnet50fe().train(False).to(output_device)
     assert os.path.exists(target_feature_pkl)
@@ -118,15 +121,24 @@ if __name__ == "__main__":
         actual_dim = target_feature_extractor(test_im).shape[-1]
 
     newfe = QuantizableNewFE(actual_dim, 8192).train(False).cpu()
-    newfe.qconfig = torch.ao.quantization.get_default_qconfig("fbgemm")
-    torch.ao.quantization.prepare(newfe, inplace=True)
-    torch.ao.quantization.convert(newfe, inplace=True)
+    newfe = torch.ao.quantization.quantize_dynamic(
+        newfe, {nn.Linear}, dtype=torch.qint8
+    )
     assert os.path.exists(newfe_pkl)
     newfe.load_state_dict(
         torch.load(open(newfe_pkl, "rb"), map_location="cpu")
     )
 
     aeinversion = AEInversion(8192).train(False).cpu()
+    aeinversion.qconfig = torch.ao.quantization.get_default_qconfig("fbgemm")
+    for module in aeinversion.modules():
+        if isinstance(module, nn.ConvTranspose2d):
+            module.qconfig = torch.ao.quantization.QConfig(
+                activation=aeinversion.qconfig.activation,
+                weight=torch.ao.quantization.default_weight_observer,
+            )
+    torch.ao.quantization.prepare(aeinversion, inplace=True)
+    torch.ao.quantization.convert(aeinversion, inplace=True)
     assert os.path.exists(ae_inv_pkl)
     aeinversion.load_state_dict(
         torch.load(open(ae_inv_pkl, "rb"), map_location="cpu")
