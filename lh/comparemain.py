@@ -203,9 +203,19 @@ if __name__ == "__main__":
                 rim_quantized.flatten(start_dim=1),
                 dim=1,
             ).sum().item()
-            ssim_sum += (1 - SSIMLoss()(rim, im2)).item() * im.size(0)
+            ssim_sum += (
+                1
+                - SSIMLoss()(
+                    rim,
+                    F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
+                )
+            ).item() * im.size(0)
             quantized_ssim_sum += (
-                1 - SSIMLoss()(rim_quantized, im2)
+                1
+                - SSIMLoss()(
+                    rim_quantized,
+                    F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
+                )
             ).item() * im.size(0)
             evaluated_samples += im.size(0)
 

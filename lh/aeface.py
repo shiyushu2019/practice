@@ -201,7 +201,10 @@ if __name__ == "__main__":
             feature8192 = feature_extractor.forward(im)
             feature8192 = F.normalize(feature8192)
             rim = myinversion.forward(feature8192)
-            ssim = SSIMLoss()(rim, im)
+            ssim = SSIMLoss()(
+                rim,
+                F.interpolate(im, size=(128, 128), mode="bilinear", align_corners=False),
+            )
             loss = ssim
             loss.backward()
             optimizer_fe.step()
@@ -237,7 +240,10 @@ if __name__ == "__main__":
                     feature8192 = feature_extractor.forward(im)
                     feature8192 = F.normalize(feature8192)
                     rim = myinversion.forward(feature8192)
-                    ssim = SSIMLoss()(rim, im)
+                    ssim = SSIMLoss()(
+                        rim,
+                        F.interpolate(im, size=(128, 128), mode="bilinear", align_corners=False),
+                    )
                     batch_samples = label.size(0)
                     ssimloss += ssim.item() * batch_samples
                     train_samples += batch_samples
@@ -254,7 +260,10 @@ if __name__ == "__main__":
                     feature8192 = feature_extractor.forward(im)
                     feature8192 = F.normalize(feature8192)
                     rim = myinversion.forward(feature8192)
-                    ssim = SSIMLoss()(rim, im)
+                    ssim = SSIMLoss()(
+                        rim,
+                        F.interpolate(im, size=(128, 128), mode="bilinear", align_corners=False),
+                    )
                     batch_samples = label.size(0)
                     ssimloss += ssim.item() * batch_samples
                     test_samples += batch_samples

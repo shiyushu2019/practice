@@ -232,7 +232,10 @@ if __name__ == "__main__":
             ae_feature8192 = F.normalize(ae_feature8192)
             cossim = torch.mean(F.cosine_similarity(target_feature, ae_feature8192))
             rim = aeinversion.forward(target_feature)
-            ssim = SSIMLoss()(rim, im2)
+            ssim = SSIMLoss()(
+                rim,
+                F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
+            )
             loss = 1 - cossim
             loss.backward()
             optimizer.step()
@@ -264,7 +267,10 @@ if __name__ == "__main__":
                     target_feature = newfe.forward(target_feature)
                     target_feature = F.normalize(target_feature)
                     rim = aeinversion.forward(target_feature)
-                    ssim = SSIMLoss()(rim, im2)
+                    ssim = SSIMLoss()(
+                        rim,
+                        F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
+                    )
                     batch_samples = label.size(0)
                     ssimloss += ssim.item() * batch_samples
                     train_samples += batch_samples
@@ -283,7 +289,10 @@ if __name__ == "__main__":
                     target_feature = newfe.forward(target_feature)
                     target_feature = F.normalize(target_feature)
                     rim = aeinversion.forward(target_feature)
-                    ssim = SSIMLoss()(rim, im2)
+                    ssim = SSIMLoss()(
+                        rim,
+                        F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
+                    )
                     batch_samples = label.size(0)
                     ssimloss += ssim.item() * batch_samples
                     test_samples += batch_samples
