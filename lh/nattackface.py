@@ -236,7 +236,7 @@ if __name__ == "__main__":
                 rim,
                 F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
             )
-            loss = 1 - cossim
+            loss = ssim
             loss.backward()
             optimizer.step()
             batch_samples = label.size(0)
@@ -247,7 +247,7 @@ if __name__ == "__main__":
 
         if epoch_id % log_epoch == 0:
             print("loss", epoch_loss / epoch_samples, epoch_id)
-            print("ssim", epoch_ssim / epoch_samples, epoch_id)
+            print("ssim", 1 - epoch_ssim / epoch_samples, epoch_id)
             print("cossim", epoch_cossim / epoch_samples, epoch_id)
             save_image2(im.detach(), f"{log_dir}/input/{epoch_id}.png")
             save_image2(rim.detach(), f"{log_dir}/output/{epoch_id}.png")
@@ -276,7 +276,7 @@ if __name__ == "__main__":
                     train_samples += batch_samples
 
                 ssimlossavg = ssimloss / train_samples
-                print("train ssim", ssimlossavg, epoch_id)
+                print("train ssim", 1 - ssimlossavg, epoch_id)
 
                 test_samples = 0
                 ssimloss = 0.0
@@ -298,4 +298,4 @@ if __name__ == "__main__":
                     test_samples += batch_samples
 
                 ssimlossavg = ssimloss / test_samples
-                print("test ssim", ssimlossavg, epoch_id)
+                print("test ssim", 1 - ssimlossavg, epoch_id)
