@@ -8,9 +8,9 @@ from tqdm import tqdm
 from piq import SSIMLoss
 from torchplus.models import resnet50fe
 from torchplus.utils import (
-    Init,
     save_image2,
 )
+from model import QuantizableInversion as AEInversion, QuantizableNewFE
 
 if __name__ == "__main__":
     torch.backends.quantized.engine = "fbgemm"
@@ -45,71 +45,6 @@ if __name__ == "__main__":
         drop_last=False,
         pin_memory=True,
     )
-
-    class QuantizableNewFE(nn.Module):
-        def __init__(self, in_dim, out_dim):
-            super().__init__()
-            self.quant = torch.ao.quantization.QuantStub()
-            self.dequant = torch.ao.quantization.DeQuantStub()
-            self.fc1 = nn.Linear(in_dim, 2048)
-            self.fc2 = nn.Linear(2048, out_dim)
-            self.lrelu1 = nn.LeakyReLU()
-            self.lrelu2 = nn.LeakyReLU()
-
-        def forward(self, x):
-            x = self.quant(x)
-            x = self.fc1(x)
-            x = self.lrelu1(x)
-            x = self.fc2(x)
-            x = self.lrelu2(x)
-            x = self.dequant(x)
-            return x
-
-    class AEInversion(nn.Module):
-        def __init__(self, in_channels):
-            super(AEInversion, self).__init__()
-            self.in_channels = in_channels
-            self.quant = torch.ao.quantization.QuantStub()
-            self.dequant = torch.ao.quantization.DeQuantStub()
-            self.deconv1 = nn.ConvTranspose2d(self.in_channels, 512, 4, 1)
-            self.deconv2 = nn.ConvTranspose2d(512, 256, 4, 2, 1)
-            self.deconv3 = nn.ConvTranspose2d(256, 128, 4, 2, 1)
-            self.deconv4 = nn.ConvTranspose2d(128, 64, 4, 2, 1)
-            self.deconv5 = nn.ConvTranspose2d(64, 32, 4, 2, 1)
-            self.deconv6 = nn.ConvTranspose2d(32, 3, 4, 2, 1)
-            self.bn1 = nn.BatchNorm2d(512)
-            self.bn2 = nn.BatchNorm2d(256)
-            self.bn3 = nn.BatchNorm2d(128)
-            self.bn4 = nn.BatchNorm2d(64)
-            self.bn5 = nn.BatchNorm2d(32)
-            self.relu1 = nn.ReLU()
-            self.relu2 = nn.ReLU()
-            self.relu3 = nn.ReLU()
-            self.relu4 = nn.ReLU()
-            self.relu5 = nn.ReLU()
-            self.sigmod = nn.Sigmoid()
-
-        def forward(self, x):
-            x = self.quant(x)
-            x = x.view(-1, self.in_channels, 1, 1)
-            x = self.deconv1(x)
-            x = self.bn1(x)
-            x = self.relu1(x)
-            x = self.deconv2(x)
-            x = self.bn2(x)
-            x = self.relu2(x)
-            x = self.deconv3(x)
-            x = self.bn3(x)
-            x = self.relu3(x)
-            x = self.deconv4(x)
-            x = self.bn4(x)
-            x = self.relu4(x)
-            x = self.deconv5(x)
-            x = self.bn5(x)
-            x = self.relu5(x)
-            x = self.deconv6(x)
-            x = self.sigmod(x)
-            return self.dequant(x)
 
     target_feature_extractor = resnet50fe().train(False).to(output_device)
     assert os.path.exists(target_feature_pkl)

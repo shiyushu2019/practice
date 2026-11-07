@@ -3,12 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader, random_split,Subset
+from torch.utils.data import DataLoader
 from torchvision.datasets import *
 from torchvision.models import ResNet50_Weights
 from tqdm import tqdm
 from torchplus.utils import ClassificationAccuracy
 from torchplus.models import resnet50fe, ResNet50FE_Dim
+from model import CLS
 
 if __name__ == "__main__":
     batch_size = 64
@@ -69,17 +70,6 @@ if __name__ == "__main__":
     )
     train_dl_len = len(train_dl)
     test_dl_len = len(test_dl)
-
-    # 分类头：将 ResNet50 提取到的特征向量映射到 530 个身份类别，
-    # 这是最后一层线性分类器，用于训练识别任务。
-    class CLS(nn.Module):
-        def __init__(self, in_dim, out_dim):
-            super(CLS, self).__init__()
-            self.fc = nn.Linear(in_dim, out_dim)
-
-        def forward(self, x):
-            x = self.fc(x)
-            return x
 
     feature_extractor = (
         resnet50fe(weights=ResNet50_Weights.IMAGENET1K_V2).train(True).to(output_device)

@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import *
@@ -8,9 +7,9 @@ from tqdm import tqdm
 from piq import SSIMLoss
 from torchplus.models import ResNet50FE_Dim, resnet50fe
 from torchplus.utils import (
-    Init,
     save_image2,
 )
+from model import Inversion as AEInversion, NewFE
 
 if __name__ == "__main__":
     batch_size = 16
@@ -44,67 +43,6 @@ if __name__ == "__main__":
         drop_last=False,
         pin_memory=True,
     )
-
-    # NewFE 是一个轻量投影头，用于把 ResNet50 的特征映射到 8192 维隐空间，
-    # 以便和 AE 编码器的输出对齐，以后可以直接重建图像。
-    class NewFE(nn.Module):
-        def __init__(self, in_dim, out_dim) -> None:
-            super(NewFE, self).__init__()
-            self.fc1 = nn.Linear(in_dim, 2048)
-            self.fc2 = nn.Linear(2048, out_dim)
-            self.lrelu1 = nn.LeakyReLU()
-            self.lrelu2 = nn.LeakyReLU()
-
-        def forward(self, x):
-            x = self.fc1(x)
-            x = self.lrelu1(x)
-            x = self.fc2(x)
-            x = self.lrelu2(x)
-            # x = self.fc3(x)
-            return x
-
-    class AEInversion(nn.Module):
-        def __init__(self, in_channels):
-            super(AEInversion, self).__init__()
-            self.in_channels = in_channels
-            self.deconv1 = nn.ConvTranspose2d(self.in_channels, 512, 4, 1)
-            self.deconv2 = nn.ConvTranspose2d(512, 256, 4, 2, 1)
-            self.deconv3 = nn.ConvTranspose2d(256, 128, 4, 2, 1)
-            self.deconv4 = nn.ConvTranspose2d(128, 64, 4, 2, 1)
-            self.deconv5 = nn.ConvTranspose2d(64, 32, 4, 2, 1)
-            self.deconv6 = nn.ConvTranspose2d(32, 3, 4, 2, 1)
-            self.bn1 = nn.BatchNorm2d(512)
-            self.bn2 = nn.BatchNorm2d(256)
-            self.bn3 = nn.BatchNorm2d(128)
-            self.bn4 = nn.BatchNorm2d(64)
-            self.bn5 = nn.BatchNorm2d(32)
-            self.relu1 = nn.ReLU()
-            self.relu2 = nn.ReLU()
-            self.relu3 = nn.ReLU()
-            self.relu4 = nn.ReLU()
-            self.relu5 = nn.ReLU()
-            self.sigmod = nn.Sigmoid()
-
-        def forward(self, x):
-            x = x.view(-1, self.in_channels, 1, 1)
-            x = self.deconv1(x)
-            x = self.bn1(x)
-            x = self.relu1(x)
-            x = self.deconv2(x)
-            x = self.bn2(x)
-            x = self.relu2(x)
-            x = self.deconv3(x)
-            x = self.bn3(x)
-            x = self.relu3(x)
-            x = self.deconv4(x)
-            x = self.bn4(x)
-            x = self.relu4(x)
-            x = self.deconv5(x)
-            x = self.bn5(x)
-            x = self.relu5(x)
-            x = self.deconv6(x)
-            x = self.sigmod(x)
-            return x
 
     target_feature_extractor = resnet50fe().train(False).to(output_device)
     newfe = NewFE(ResNet50FE_Dim, 8192).train(False).to(output_device)
