@@ -4,12 +4,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision.datasets import *
 from torchvision.models import ResNet50_Weights
 from tqdm import tqdm
 from torchplus.utils import ClassificationAccuracy
 from torchplus.models import resnet50fe, ResNet50FE_Dim
-from model import CLS
+from utils.model import CLS
 
 if __name__ == "__main__":
     batch_size = 64
@@ -33,7 +32,7 @@ if __name__ == "__main__":
 
     data_workers = 2
 
-    from datasplit import(
+    from utils.datasplit import (
             ds,
             part1_ds,
             test_ds

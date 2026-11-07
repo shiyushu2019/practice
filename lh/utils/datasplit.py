@@ -1,9 +1,7 @@
 import torch
 from torch.utils.data import Subset
-from torchvision.datasets import *
-from torchvision.datasets import *
+from torchvision.datasets import ImageFolder
 from torchvision.transforms.v2 import *
-from torchvision.transforms.v2.functional import *
 
 seed = 9970
 torch.manual_seed(seed)

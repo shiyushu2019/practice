@@ -2,13 +2,12 @@ import os
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
-from torchvision.datasets import *
 from tqdm import tqdm
 from piq import SSIMLoss
 from torchplus.utils import (
     save_image2,
 )
-from model import FeatureExtracter, Inversion
+from utils.model import FeatureExtracter, Inversion
 
 if __name__ == "__main__":
     batch_size = 16
@@ -28,7 +27,7 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
-    from datasplit import(
+    from utils.datasplit import (
             test_ds
     )
     test_dl = DataLoader(

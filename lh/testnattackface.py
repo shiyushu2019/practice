@@ -2,14 +2,13 @@ import os
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
-from torchvision.datasets import *
 from tqdm import tqdm
 from piq import SSIMLoss
 from torchplus.models import ResNet50FE_Dim, resnet50fe
 from torchplus.utils import (
     save_image2,
 )
-from model import Inversion as AEInversion, NewFE
+from utils.model import Inversion as AEInversion, NewFE
 
 if __name__ == "__main__":
     batch_size = 16
@@ -30,7 +29,7 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
-    from datasplit import(
+    from utils.datasplit import (
             test_ds
     )
     test_ds_len = len(test_ds)

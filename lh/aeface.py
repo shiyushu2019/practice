@@ -3,11 +3,10 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision.datasets import *
 from tqdm import tqdm
 from torchplus.utils import save_image2
 from piq import SSIMLoss
-from model import FeatureExtracter, Inversion
+from utils.model import FeatureExtracter, Inversion
 
 # 主训练入口：使用 FaceScrub 数据，训练一个“特征编码 -> 图像重建”的自编码器网络。
 if __name__ == "__main__":
@@ -33,7 +32,7 @@ if __name__ == "__main__":
 
     data_workers = 2
 
-    from datasplit import(
+    from utils.datasplit import (
             part2_ds,
             test_ds
     )

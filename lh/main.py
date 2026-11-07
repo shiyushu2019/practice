@@ -10,7 +10,7 @@ from PIL import Image
 import numpy as np
 
 
-from model import AEInversionForStatic, QuantizableNewFE
+from utils.model import AEInversionForStatic, QuantizableNewFE
 
 
 def save_compressed_image(tensor_img, save_path, quality=50):
@@ -73,7 +73,7 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
     data_workers = 2
 
-    from datasplit import(
+    from utils.datasplit import (
             part2_ds,
             test_ds
     )

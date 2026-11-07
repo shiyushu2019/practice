@@ -3,12 +3,11 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision.datasets import *
 from tqdm import tqdm
 from torchplus.utils import save_image2
 from torchplus.models import ResNet50FE_Dim, resnet50fe
 from piq import SSIMLoss
-from model import AEFeatureExtracter, AEInversion, NewFE
+from utils.model import AEFeatureExtracter, AEInversion, NewFE
 
 if __name__ == "__main__":
     batch_size = 256
@@ -35,7 +34,7 @@ if __name__ == "__main__":
     os.makedirs(os.path.join(log_dir, "output"), exist_ok=True)
     data_workers = 2
 
-    from datasplit import(
+    from utils.datasplit import (
             part2_ds,
             test_ds
     )
