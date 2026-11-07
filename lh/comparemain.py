@@ -138,9 +138,9 @@ if __name__ == "__main__":
     with torch.no_grad():
         actual_dim = target_feature_extractor(test_im).shape[-1]
 
-    newfe = NewFE(actual_dim, 8192).train(False).cpu()
+    newfe = NewFE(actual_dim, 8192).train(False).to(output_device)
     assert os.path.exists(newfe_pkl)
-    newfe.load_state_dict(torch.load(open(newfe_pkl, "rb"), map_location="cpu"))
+    newfe.load_state_dict(torch.load(open(newfe_pkl, "rb"), map_location=output_device))
 
     newfe_quantized = QuantizableNewFE(actual_dim, 8192).train(False).cpu()
     newfe_quantized = torch.ao.quantization.quantize_dynamic(
@@ -151,9 +151,9 @@ if __name__ == "__main__":
         torch.load(open(newfe_quantized_pkl, "rb"), map_location="cpu")
     )
 
-    aeinversion = AEInversion(8192).train(False).cpu()
+    aeinversion = AEInversion(8192).train(False).to(output_device)
     assert os.path.exists(ae_inv_pkl)
-    aeinversion.load_state_dict(torch.load(open(ae_inv_pkl, "rb"), map_location="cpu"))
+    aeinversion.load_state_dict(torch.load(open(ae_inv_pkl, "rb"), map_location=output_device))
 
     aeinversion_quantized = AEInversion(8192).train(False).cpu()
     aeinversion_quantized.qconfig = torch.ao.quantization.get_default_qconfig("fbgemm")
@@ -183,24 +183,23 @@ if __name__ == "__main__":
     quantized_ssim_sum = 0.0
     evaluated_samples = 0
     with torch.no_grad():
-        for im, _ in tqdm(test_dl, desc="evaluate test", mininterval=1.0):
-            im = im.to(output_device)
-            im2 = im
-            im2=im2.cpu()
-            target_features = target_feature_extractor.forward(im).cpu()
-            target_feature8192 = F.normalize(newfe.forward(target_features))
+        for im_cpu, _ in tqdm(test_dl, desc="evaluate test", mininterval=1.0):
+            im = im_cpu.to(output_device, non_blocking=True)
+            target_features_gpu = target_feature_extractor.forward(im)
+            target_features_cpu = target_features_gpu.cpu()
+            target_feature8192 = F.normalize(newfe.forward(target_features_gpu))
             target_feature8192_quantized = F.normalize(
-                newfe_quantized.forward(target_features)
+                newfe_quantized.forward(target_features_cpu)
             )
             rim = aeinversion.forward(target_feature8192)
             rim_quantized = aeinversion_quantized.forward(
                 target_feature8192_quantized
             )
             cosine_sum += F.cosine_similarity(
-                im2.flatten(start_dim=1), rim.flatten(start_dim=1), dim=1
+                im.flatten(start_dim=1), rim.flatten(start_dim=1), dim=1
             ).sum().item()
             quantized_cosine_sum += F.cosine_similarity(
-                im2.flatten(start_dim=1),
+                im_cpu.flatten(start_dim=1),
                 rim_quantized.flatten(start_dim=1),
                 dim=1,
             ).sum().item()
@@ -208,14 +207,14 @@ if __name__ == "__main__":
                 1
                 - SSIMLoss()(
                     rim,
-                    F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
+                    F.interpolate(im, size=(128, 128), mode="bilinear", align_corners=False),
                 )
             ).item() * im.size(0)
             quantized_ssim_sum += (
                 1
                 - SSIMLoss()(
                     rim_quantized,
-                    F.interpolate(im2, size=(128, 128), mode="bilinear", align_corners=False),
+                    F.interpolate(im_cpu, size=(128, 128), mode="bilinear", align_corners=False),
                 )
             ).item() * im.size(0)
             evaluated_samples += im.size(0)
@@ -246,20 +245,19 @@ if __name__ == "__main__":
     # Save original, full-precision reconstruction, and quantized reconstruction.
     with torch.no_grad():
         image_index = 0
-        for im, _ in tqdm(sample_dl, desc="save test pairs", mininterval=1.0):
-            im = im.to(output_device)
-            im2 =im
-            im2=im2.cpu()
-            target_features = target_feature_extractor.forward(im).cpu()
-            target_feature8192 = F.normalize(newfe.forward(target_features))
+        for im_cpu, _ in tqdm(sample_dl, desc="save test pairs", mininterval=1.0):
+            im = im_cpu.to(output_device, non_blocking=True)
+            target_features_gpu = target_feature_extractor.forward(im)
+            target_features_cpu = target_features_gpu.cpu()
+            target_feature8192 = F.normalize(newfe.forward(target_features_gpu))
             target_feature8192_quantized = F.normalize(
-                newfe_quantized.forward(target_features)
+                newfe_quantized.forward(target_features_cpu)
             )
-            rim = aeinversion.forward(target_feature8192)
+            rim = aeinversion.forward(target_feature8192).cpu()
             rim_quantized = aeinversion_quantized.forward(
                 target_feature8192_quantized
             )
-            pairs = torch.cat((im2, rim, rim_quantized), dim=3)
+            pairs = torch.cat((im_cpu, rim, rim_quantized), dim=3)
             for pair in pairs:
                 save_image2(pair.detach(), os.path.join(pair_dir, f"{image_index:03d}.png"))
                 image_index += 1
